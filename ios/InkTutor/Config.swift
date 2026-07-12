@@ -1,6 +1,6 @@
 import Foundation
 
 enum Config {
-    // TODO: paste deployed worker URL
-    static let workerURL = URL(string: "https://REPLACE-ME.workers.dev")!
+    /// Deployed 2026-07-12; mints ephemeral realtime tokens with tutor instructions baked in.
+    static let workerURL = URL(string: "https://inktutor-worker.inktutor.workers.dev")!
 }

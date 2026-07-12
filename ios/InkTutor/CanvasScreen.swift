@@ -12,15 +12,19 @@ struct CanvasScreen: View {
     @StateObject private var tutorPage = PageModel(role: .tutor)
     @State private var showTutorPage = false
 
+    /// One shared realtime session for the whole screen — the voice bar
+    /// drives it, and the student canvas pushes snapshots into it.
+    private let session: TutorSession = RealtimeSession()
+
     var body: some View {
         ZStack {
-            PageCanvasRepresentable(page: studentPage, pageSize: Self.pageSize)
+            PageCanvasRepresentable(page: studentPage, pageSize: Self.pageSize, session: session)
                 .ignoresSafeArea()
 
             VStack {
                 HStack {
                     Spacer()
-                    // voice bar lands here (Task 12)
+                    VoiceBarView(session: session)
                 }
                 Spacer()
             }

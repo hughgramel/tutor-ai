@@ -28,33 +28,41 @@ final class RealtimeSession: NSObject, TutorSession {
     }
 
     func connect() async throws {
-        let ephemeralKey = try await fetchEphemeralKey()
+        TutorLog.shared.lifecycle("connect start")
+        do {
+            let ephemeralKey = try await fetchEphemeralKey()
 
-        // CRITICAL ORDER: configure the audio session BEFORE creating the
-        // peer connection — configuring it after breaks echo cancellation.
-        try configureAudioSession()
+            // CRITICAL ORDER: configure the audio session BEFORE creating the
+            // peer connection — configuring it after breaks echo cancellation.
+            try configureAudioSession()
 
-        let pc = try makePeerConnection()
-        peerConnection = pc
+            let pc = try makePeerConnection()
+            peerConnection = pc
 
-        let dc = pc.dataChannel(forLabel: "oai-events", configuration: RTCDataChannelConfiguration())
-        dc?.delegate = self
-        dataChannel = dc
+            let dc = pc.dataChannel(forLabel: "oai-events", configuration: RTCDataChannelConfiguration())
+            dc?.delegate = self
+            dataChannel = dc
 
-        let audioTrack = try makeLocalAudioTrack()
-        localAudioTrack = audioTrack
-        _ = pc.add(audioTrack, streamIds: ["inktutor-mic"])
+            let audioTrack = try makeLocalAudioTrack()
+            localAudioTrack = audioTrack
+            _ = pc.add(audioTrack, streamIds: ["inktutor-mic"])
 
-        let offer = try await createOffer(on: pc)
-        try await setLocalDescription(offer, on: pc)
+            let offer = try await createOffer(on: pc)
+            try await setLocalDescription(offer, on: pc)
 
-        let answerSDP = try await postOffer(offer.sdp, ephemeralKey: ephemeralKey)
-        let answer = RTCSessionDescription(type: .answer, sdp: answerSDP)
-        try await setRemoteDescription(answer, on: pc)
+            let answerSDP = try await postOffer(offer.sdp, ephemeralKey: ephemeralKey)
+            let answer = RTCSessionDescription(type: .answer, sdp: answerSDP)
+            try await setRemoteDescription(answer, on: pc)
+            TutorLog.shared.lifecycle("SDP ok")
+        } catch {
+            TutorLog.shared.error("connect failed: \(error)")
+            throw error
+        }
     }
 
     func pushImage(_ jpeg: Data) async {
         let dataURL = "data:image/jpeg;base64,\(jpeg.base64EncodedString())"
+        TutorLog.shared.info("send image context: \(jpeg.count / 1024) KB JPEG")
         send([
             "type": "conversation.item.create",
             "item": [
@@ -83,6 +91,7 @@ final class RealtimeSession: NSObject, TutorSession {
     }
 
     func endSession() {
+        TutorLog.shared.lifecycle("session end")
         dataChannel?.close()
         dataChannel = nil
         peerConnection?.close()
@@ -244,11 +253,15 @@ final class RealtimeSession: NSObject, TutorSession {
     // MARK: - Sending over the data channel
 
     private func send(_ event: [String: Any]) {
+        let type = event["type"] as? String ?? "?"
         guard let dataChannel, dataChannel.readyState == .open else {
-            print("⚠️ RealtimeSession: data channel not open, dropping event \(event["type"] ?? "?")")
+            let message = "data channel not open, dropping event \(type)"
+            print("⚠️ RealtimeSession: \(message)")
+            TutorLog.shared.error(message)
             return
         }
         guard let payload = try? JSONSerialization.data(withJSONObject: event) else { return }
+        TutorLog.shared.sent(type: type, byteCount: payload.count)
         dataChannel.sendData(RTCDataBuffer(data: payload, isBinary: false))
     }
 
@@ -257,6 +270,8 @@ final class RealtimeSession: NSObject, TutorSession {
     private func handleServerEvent(_ data: Data) {
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let type = object["type"] as? String else { return }
+
+        TutorLog.shared.received(type: type, raw: object)
 
         switch type {
         case "response.output_audio_transcript.delta":
@@ -295,7 +310,15 @@ extension RealtimeSession: RTCPeerConnectionDelegate {
 // MARK: - RTCDataChannelDelegate
 
 extension RealtimeSession: RTCDataChannelDelegate {
-    func dataChannelDidChangeState(_ dataChannel: RTCDataChannel) {}
+    func dataChannelDidChangeState(_ dataChannel: RTCDataChannel) {
+        switch dataChannel.readyState {
+        case .open: TutorLog.shared.lifecycle("data channel open")
+        case .closing: TutorLog.shared.lifecycle("data channel closing")
+        case .closed: TutorLog.shared.lifecycle("data channel closed")
+        case .connecting: break
+        @unknown default: break
+        }
+    }
 
     func dataChannel(_ dataChannel: RTCDataChannel, didReceiveMessageWith buffer: RTCDataBuffer) {
         handleServerEvent(buffer.data)

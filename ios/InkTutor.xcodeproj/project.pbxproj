@@ -14,11 +14,13 @@
 		762A1C26DDFA516824068412 /* assignment.pdf in Resources */ = {isa = PBXBuildFile; fileRef = 637A7394525D3B9DF4BF8288 /* assignment.pdf */; };
 		7B3EA07447AA52C8843000B8 /* PageModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 483F622626E09F2F5B1CBB50 /* PageModel.swift */; };
 		8BD13F3D6FAD1AA3F7403A9E /* WebRTC in Frameworks */ = {isa = PBXBuildFile; productRef = 3B3516D40872201B9DB26222 /* WebRTC */; };
+		A1CA8E047C79B7341D79CA6A /* TutorLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89F69BBA8C8E4B46B99F469E /* TutorLog.swift */; };
 		A9CACA6730C593CDAF601E24 /* worksheet-equations-word-problems.pdf in Resources */ = {isa = PBXBuildFile; fileRef = E2ADF9C29B4AADB88A787555 /* worksheet-equations-word-problems.pdf */; };
 		AF7EED1F8A85198477B4C374 /* RealtimeSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6266234957DDEE9D4EE9D5AE /* RealtimeSession.swift */; };
 		C0E1CB681561D37327B4C697 /* Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEE3EC710F28F03357F0DAF8 /* Config.swift */; };
 		C3F4AA3418C6E95AB58D2D6B /* CanvasView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81A1161D5201C918F39AABDC /* CanvasView.swift */; };
 		CD07A64BF354BE16EE9A9FAB /* InkTutorApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 173B6CA5575873348E765E1E /* InkTutorApp.swift */; };
+		DE0F70914330DB14452EEEFD /* VoiceBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 725A77CC7DBDBDE2D2F8BB47 /* VoiceBarView.swift */; };
 		DEC87AD64D75BC4AF4C3C9C6 /* SnapshotTransformTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50BCDD75EB177C5B15EAA3B5 /* SnapshotTransformTests.swift */; };
 /* End PBXBuildFile section */
 
@@ -42,7 +44,9 @@
 		6266234957DDEE9D4EE9D5AE /* RealtimeSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RealtimeSession.swift; sourceTree = "<group>"; };
 		637A7394525D3B9DF4BF8288 /* assignment.pdf */ = {isa = PBXFileReference; lastKnownFileType = image.pdf; path = assignment.pdf; sourceTree = "<group>"; };
 		657295A3C4B7C4D0ED19F627 /* PlaceholderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaceholderTests.swift; sourceTree = "<group>"; };
+		725A77CC7DBDBDE2D2F8BB47 /* VoiceBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceBarView.swift; sourceTree = "<group>"; };
 		81A1161D5201C918F39AABDC /* CanvasView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanvasView.swift; sourceTree = "<group>"; };
+		89F69BBA8C8E4B46B99F469E /* TutorLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TutorLog.swift; sourceTree = "<group>"; };
 		BA868DA7B0C07E34149845E2 /* InkTutor.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = InkTutor.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		BEE3EC710F28F03357F0DAF8 /* Config.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Config.swift; sourceTree = "<group>"; };
 		E2ADF9C29B4AADB88A787555 /* worksheet-equations-word-problems.pdf */ = {isa = PBXFileReference; lastKnownFileType = image.pdf; path = "worksheet-equations-word-problems.pdf"; sourceTree = "<group>"; };
@@ -80,7 +84,9 @@
 				483F622626E09F2F5B1CBB50 /* PageModel.swift */,
 				6266234957DDEE9D4EE9D5AE /* RealtimeSession.swift */,
 				4D5BC5008BAB4F838B9A10E5 /* Snapshot.swift */,
+				89F69BBA8C8E4B46B99F469E /* TutorLog.swift */,
 				0FD8EE9DD8ABC6D38EAAB09A /* TutorSession.swift */,
+				725A77CC7DBDBDE2D2F8BB47 /* VoiceBarView.swift */,
 				1EA77254019FE876FC4DC37B /* Resources */,
 			);
 			path = InkTutor;
@@ -224,7 +230,9 @@
 				7B3EA07447AA52C8843000B8 /* PageModel.swift in Sources */,
 				AF7EED1F8A85198477B4C374 /* RealtimeSession.swift in Sources */,
 				5D679BEBDAA0C3EDF4679DB4 /* Snapshot.swift in Sources */,
+				A1CA8E047C79B7341D79CA6A /* TutorLog.swift in Sources */,
 				05A01214619121DDFC3D9775 /* TutorSession.swift in Sources */,
+				DE0F70914330DB14452EEEFD /* VoiceBarView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

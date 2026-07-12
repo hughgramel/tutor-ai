@@ -13,6 +13,9 @@ import PencilKit
 struct PageCanvasRepresentable: UIViewRepresentable {
     @ObservedObject var page: PageModel
     let pageSize: CGSize
+    /// Snapshot pushes (Task 12, student page only for now) — nil for the
+    /// tutor's own popup page, which has nothing to push yet.
+    var session: TutorSession? = nil
 
     static var drawingPolicy: PKCanvasViewDrawingPolicy {
         #if targetEnvironment(simulator)
@@ -67,6 +70,9 @@ struct PageCanvasRepresentable: UIViewRepresentable {
         context.coordinator.canvasView = canvasView
         context.coordinator.picker = picker
         context.coordinator.pageSize = pageSize
+        // Student page only for now (Task 12) — the tutor popup page passes
+        // no session and never pushes snapshots.
+        context.coordinator.session = page.role == .student ? session : nil
         context.coordinator.syncUnderlay()
 
         return container
@@ -80,6 +86,7 @@ struct PageCanvasRepresentable: UIViewRepresentable {
         if context.coordinator.pdfImageView?.image !== page.pdfImage {
             context.coordinator.pdfImageView?.image = page.pdfImage
         }
+        context.coordinator.session = page.role == .student ? session : nil
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -91,9 +98,60 @@ struct PageCanvasRepresentable: UIViewRepresentable {
         weak var canvasView: PKCanvasView?
         var picker: PKToolPicker? // retain
         var pageSize: CGSize = .zero
+        var session: TutorSession?
+
+        // MARK: - Snapshot push (Task 12): debounce 800ms after the last
+        // stroke, then respect a 3s floor between pushes and skip entirely
+        // if the drawing hasn't changed since the last one that went out
+        // (Global Constraints snapshot budget).
+        private static let debounceNanoseconds: UInt64 = 800_000_000
+        private static let minPushInterval: TimeInterval = 3.0
+
+        private var pushTask: Task<Void, Never>?
+        private var lastPushedDrawing: PKDrawing?
+        private var lastPushTime: Date?
 
         func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
             page?.drawing = canvasView.drawing
+            scheduleSnapshotPush()
+        }
+
+        private func scheduleSnapshotPush() {
+            guard session != nil else { return }
+            pushTask?.cancel()
+            pushTask = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: Coordinator.debounceNanoseconds)
+                guard !Task.isCancelled else { return }
+                await self?.pushSnapshotIfDue()
+            }
+        }
+
+        @MainActor
+        private func pushSnapshotIfDue() async {
+            guard let session, let page, let canvasView else { return }
+
+            if canvasView.drawing == lastPushedDrawing { return } // unchanged since last push
+
+            if let lastPushTime {
+                let sinceLastPush = Date().timeIntervalSince(lastPushTime)
+                if sinceLastPush < Coordinator.minPushInterval {
+                    // Too soon — try again once the budget reopens, so a
+                    // burst of strokes still nets one push once it settles.
+                    let remaining = Coordinator.minPushInterval - sinceLastPush
+                    pushTask = Task { [weak self] in
+                        try? await Task.sleep(nanoseconds: UInt64(remaining * 1_000_000_000))
+                        guard !Task.isCancelled else { return }
+                        await self?.pushSnapshotIfDue()
+                    }
+                    return
+                }
+            }
+
+            let drawingAtPushTime = canvasView.drawing
+            let snapshot = SnapshotRenderer.render(page: page, pageSize: pageSize)
+            lastPushedDrawing = drawingAtPushTime
+            lastPushTime = Date()
+            await session.pushImage(snapshot.jpeg)
         }
 
         func scrollViewDidScroll(_ scrollView: UIScrollView) { syncUnderlay() }
