@@ -147,10 +147,10 @@ struct VoiceBarView: View {
     private var showPill: Bool { isConnected }
 
     private var talkSurface: some View {
-        ZStack {
-            idleContent.opacity(showPill ? 0 : 1)
-            pillContent.opacity(showPill ? 1 : 0)
-        }
+        // One surface, two states (Hugh, 2026-07-12: 'just be waveform with
+        // 2 states — idle + held/recording'). Idle = flat calm bars; held =
+        // red live bars. No Ask AI box, no morph.
+        pillContent
         // Constant padding in both states — state-dependent padding made the
         // whole chrome shift the instant a hold started (Hugh, device
         // testing: "it moves once you start holding").
@@ -195,28 +195,12 @@ struct VoiceBarView: View {
 
     // MARK: - Idle state
 
-    /// Idle: a static mini-waveform as the icon — the button previews the
-    /// interaction it starts — plus a soft top sheen for the glossy read.
-    private static let idleWaveHeights: [CGFloat] = [7, 13, 18, 11, 6]
-
     /// One gesture end-to-end (Hugh, device testing, 2026-07-12: "you can't
     /// just hold down and then release to have it respond" — before this,
     /// the idle button only connected on tap and hold-to-talk existed only
     /// on the post-morph pill, so holding "Ask AI" and speaking went
     /// nowhere). Press-down here starts connecting AND queues the hold; the
     /// mic goes live the instant the session is up; release commits.
-    /// Mic glyph, not a waveform (Hugh, 2026-07-12: the waveform belongs to
-    /// the live state only — idle shows what the button DOES: hold to talk).
-    private var idleContent: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "mic.fill")
-                .font(.system(size: 15, weight: .semibold))
-            Text("Ask AI")
-                .font(.system(size: 15, weight: .semibold, design: .rounded))
-        }
-        .foregroundStyle(connection == .error ? .red : .primary)
-    }
-
     // MARK: - Waveform pill
 
     /// No `Button` here — `onLongPressGesture(minimumDuration: 0.01, ...)`
