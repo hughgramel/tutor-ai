@@ -64,7 +64,7 @@
 		81A1161D5201C918F39AABDC /* CanvasView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanvasView.swift; sourceTree = "<group>"; };
 		89F69BBA8C8E4B46B99F469E /* TutorLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TutorLog.swift; sourceTree = "<group>"; };
 		B430EA41F546F95E59677D13 /* AnnotationGeometryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnnotationGeometryTests.swift; sourceTree = "<group>"; };
-		BA868DA7B0C07E34149845E2 /* InkTutor.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = InkTutor.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		BA868DA7B0C07E34149845E2 /* InkTutor.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = InkTutor.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		BEE3EC710F28F03357F0DAF8 /* Config.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Config.swift; sourceTree = "<group>"; };
 		D196AF68BEE8C2465A595D25 /* TagParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagParser.swift; sourceTree = "<group>"; };
 		D5663BAFA5DF124EA03FC950 /* AnnotationOverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnnotationOverlayView.swift; sourceTree = "<group>"; };
@@ -203,6 +203,7 @@
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
 					600CD734224C6A9799006E54 = {
+						DevelopmentTeam = 9GAK47LFPY;
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -370,7 +371,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = JWT3RYQ292;
+				DEVELOPMENT_TEAM = 9GAK47LFPY;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "InkTutor uses the microphone so you can talk to your tutor.";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
@@ -408,7 +409,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = JWT3RYQ292;
+				DEVELOPMENT_TEAM = 9GAK47LFPY;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "InkTutor uses the microphone so you can talk to your tutor.";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
