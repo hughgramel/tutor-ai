@@ -135,13 +135,9 @@ struct VoiceBarView: View {
     /// gesture surface. (Traded away the GlassEffectContainer morph for
     /// gesture continuity — function over gloss.)
     private var morphingChrome: some View {
-        HStack(spacing: 10) {
-            talkSurface
-            if isConnected {
-                closeButton
-                    .transition(.opacity.combined(with: .scale))
-            }
-        }
+        // Stop button removed (Hugh, 2026-07-12) — holding the pill IS the
+        // interrupt; one control total.
+        talkSurface
     }
 
     private var showPill: Bool { isConnected }
