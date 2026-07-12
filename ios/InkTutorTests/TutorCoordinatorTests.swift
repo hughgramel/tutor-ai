@@ -1,5 +1,6 @@
 import XCTest
 import PencilKit
+import UIKit
 @testable import InkTutor
 
 /// `TutorCoordinator` is the glue between `TutorSession`, `MarkRegistry`,
@@ -75,7 +76,8 @@ final class TutorCoordinatorTests: XCTestCase {
         studentPage: PageModel,
         tutorPage: PageModel,
         onOpenTutorPage: @escaping () -> Void = {},
-        onWrite: @escaping (String, Anchor) -> Void = { _, _ in }
+        onWrite: @escaping (String, Anchor) async -> [TutorWriterLayout.GlyphPlacement] = { _, _ in [] },
+        writtenLayer: @escaping () -> CALayer? = { nil }
     ) -> TutorCoordinator {
         TutorCoordinator(
             session: session,
@@ -84,8 +86,19 @@ final class TutorCoordinatorTests: XCTestCase {
             pageSize: CGSize(width: 768, height: 1024),
             performer: performer,
             openTutorPage: onOpenTutorPage,
-            writeHandler: onWrite
+            writeHandler: onWrite,
+            writtenLayerProvider: writtenLayer
         )
+    }
+
+    /// A `TutorWriterLayout.GlyphPlacement` fake — real placements come from
+    /// `TutorWriterLayout.layout` (SwiftMath geometry), but everything this
+    /// file needs to prove (registry JSON, mark resolution, dispatch) only
+    /// depends on `frame`/`glyphKey`/`character` as opaque values, so a
+    /// fake avoids parsing real latex through CoreAnimation/SwiftMath in a
+    /// unit test (per the plan's "no CoreAnimation assertions" rule).
+    private func fakeGlyph(_ character: String, _ frame: CGRect) -> TutorWriterLayout.GlyphPlacement {
+        TutorWriterLayout.GlyphPlacement(character: character, glyphKey: character, frame: frame)
     }
 
     private func drawing(_ points: [CGPoint]) -> PKDrawing {
@@ -231,7 +244,7 @@ final class TutorCoordinatorTests: XCTestCase {
         let coordinator = makeCoordinator(
             session: session, performer: performer, studentPage: studentPage, tutorPage: tutorPage,
             onOpenTutorPage: { openCount += 1 },
-            onWrite: { latex, anchor in writeCalls.append((latex, anchor)) }
+            onWrite: { latex, anchor in writeCalls.append((latex, anchor)); return [] }
         )
 
         await coordinator.dispatch(.write(latex: "x=1", anchor: .belowLast))
@@ -274,6 +287,103 @@ final class TutorCoordinatorTests: XCTestCase {
         await coordinator.dispatch(.write(latex: "x=1", anchor: .belowLast))
 
         XCTAssertTrue(performer.calls.isEmpty)
+    }
+
+    // MARK: - WRITE glyphs become addressable marks (own handwriting anchoring)
+
+    func testWriteAppendsWrittenMarksAndPushesEnrichedTutorSnapshot() async {
+        let session = FakeTutorSession()
+        let performer = FakeAnnotationPerformer()
+        let studentPage = PageModel(role: .student)
+        let tutorPage = PageModel(role: .tutor)
+        let glyphs = [
+            fakeGlyph("2", CGRect(x: 60, y: 80, width: 20, height: 30)),
+            fakeGlyph("x", CGRect(x: 84, y: 80, width: 20, height: 30)),
+        ]
+        let coordinator = makeCoordinator(
+            session: session, performer: performer, studentPage: studentPage, tutorPage: tutorPage,
+            onWrite: { _, _ in glyphs }
+        )
+
+        await coordinator.dispatch(.write(latex: "2x", anchor: .belowLast))
+
+        // dispatchWrite pushes its OWN enriched snapshot of the tutor page
+        // once the writer finishes -- distinct from the debounced push
+        // CanvasView.Coordinator schedules off a PKCanvasView stroke, which
+        // never fires here (nothing changed in any PKDrawing).
+        XCTAssertEqual(session.pushedImages.count, 1)
+        XCTAssertEqual(session.pushedEvents.count, 1)
+        let json = session.pushedEvents[0]
+        XCTAssertTrue(json.contains("\"page\":\"tutor\""))
+        XCTAssertTrue(json.contains("\"id\":1"))
+        XCTAssertTrue(json.contains("\"id\":2"))
+        XCTAssertTrue(json.contains("\"written\":true"), "written marks must be tagged so the model can tell its own writing from the student's ink")
+        XCTAssertEqual(coordinator.journal.last?.event, .snapshotPushed(page: "tutor", markCount: 2))
+    }
+
+    func testArrowBetweenTwoWrittenGlyphsDispatchesToPerformer() async {
+        // The demo's distribution-arcs moment: ARROW from the "2" TutorWriter
+        // itself just wrote to each term of "(x+5)" -- both endpoints are the
+        // tutor's own handwriting, not student ink.
+        let session = FakeTutorSession()
+        let performer = FakeAnnotationPerformer()
+        let studentPage = PageModel(role: .student)
+        let tutorPage = PageModel(role: .tutor)
+        let two = fakeGlyph("2", CGRect(x: 60, y: 80, width: 20, height: 30))
+        let x = fakeGlyph("x", CGRect(x: 84, y: 80, width: 20, height: 30))
+        let coordinator = makeCoordinator(
+            session: session, performer: performer, studentPage: studentPage, tutorPage: tutorPage,
+            onWrite: { _, _ in [two, x] }
+        )
+
+        await coordinator.dispatch(.write(latex: "2x", anchor: .belowLast))
+        await coordinator.dispatch(.arrow(1, 2))
+
+        XCTAssertEqual(performer.calls.count, 1)
+        XCTAssertEqual(performer.calls[0].page.id, tutorPage.id, "an arrow between two written marks must dispatch on the tutor page")
+        if case .arrow(let from, let to) = performer.calls[0].annotation {
+            XCTAssertEqual(from.bbox, two.frame)
+            XCTAssertEqual(to.bbox, x.frame)
+            XCTAssertTrue(from.written)
+            XCTAssertTrue(to.written)
+        } else {
+            XCTFail("expected .arrow annotation")
+        }
+    }
+
+    func testWrittenMarkIDsDoNotCollideWithInkMarksOnTutorPage() async {
+        // The tutor page can carry BOTH real ink (MarkRegistry.compute) and
+        // written glyphs (appendWrittenMarks) -- they must share one ID
+        // counter space so [CIRCLE:n] is never ambiguous between the two.
+        let session = FakeTutorSession()
+        let performer = FakeAnnotationPerformer()
+        let studentPage = PageModel(role: .student)
+        let tutorPage = PageModel(role: .tutor)
+        let glyph = fakeGlyph("5", CGRect(x: 200, y: 200, width: 20, height: 30))
+        let coordinator = makeCoordinator(
+            session: session, performer: performer, studentPage: studentPage, tutorPage: tutorPage,
+            onWrite: { _, _ in [glyph] }
+        )
+
+        // Ink first -- MarkRegistry's own counter hands it id 1.
+        tutorPage.drawing = drawing([CGPoint(x: 100, y: 500), CGPoint(x: 120, y: 510), CGPoint(x: 140, y: 500)])
+        let inkMarks = await coordinator.pushEnrichedSnapshot(for: tutorPage)
+        XCTAssertEqual(inkMarks.map(\.id), [1])
+
+        await coordinator.dispatch(.write(latex: "5", anchor: .belowLast))
+
+        // id 2 (not 1) must resolve to the written glyph, proving the two
+        // counters didn't collide.
+        await coordinator.dispatch(.circle(2))
+
+        XCTAssertEqual(performer.calls.count, 1)
+        if case .circle(let mark) = performer.calls[0].annotation {
+            XCTAssertEqual(mark.id, 2)
+            XCTAssertTrue(mark.written)
+            XCTAssertEqual(mark.bbox, glyph.frame)
+        } else {
+            XCTFail("expected .circle annotation")
+        }
     }
 
     func testWaitIsLoggedAndNoOp() async {

@@ -5,7 +5,7 @@ import PencilKit
 /// pinch-zoom (PKCanvasView IS a UIScrollView, no wrapper needed), tool
 /// picker. Used for both the student page and the tutor popup page.
 ///
-/// The PDF underlay is a sibling view *outside* the scroll view's own
+/// The PDF underlay is a sibling view *outside* the scroll view's ownmoo
 /// content, manually kept in sync with the canvas's contentOffset/zoomScale
 /// via UIScrollViewDelegate callbacks — this is the pattern Apple's own
 /// PencilKit sample uses for backgrounds, and it's what lets an

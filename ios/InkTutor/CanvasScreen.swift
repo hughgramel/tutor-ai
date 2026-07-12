@@ -1,5 +1,6 @@
 import SwiftUI
 import PDFKit
+import UIKit
 
 /// App entry screen: the student's worksheet canvas, full-screen, plus the
 /// tutor's popup page. Opens directly onto the canvas — no landing screen
@@ -90,7 +91,8 @@ struct CanvasScreen: View {
             pageSize: Self.pageSize,
             performer: performer,
             openTutorPage: { showTutorPage = true },
-            writeHandler: { latex, anchor in writeRouter.handle(latex: latex, anchor: anchor) }
+            writeHandler: { latex, anchor in await writeRouter.handle(latex: latex, anchor: anchor) },
+            writtenLayerProvider: { writeRouter.contentLayer }
         )
     }
 
@@ -193,27 +195,34 @@ private final class TutorAnnotationPerformer: AnnotationPerforming {
     }
 }
 
-/// Bridges `TutorCoordinator`'s synchronous `writeHandler` closure to the
-/// tutor page's `TutorWriter` (wiring Step 3). Two problems this solves that
-/// a direct `{ latex, anchor in writer.write(...) }` closure couldn't:
+/// Bridges `TutorCoordinator`'s `writeHandler` closure to the tutor page's
+/// `TutorWriter` (wiring Step 3). Two problems this solves that a direct
+/// `{ latex, anchor in await writer.write(...) }` closure couldn't:
 ///
 /// 1. **Timing:** `dispatchWrite` calls `openTutorPageIfNeeded()` then
-///    `writeHandler(...)` synchronously, back to back — but `showTutorPage`
-///    flipping true doesn't mount `TutorPagePopup`'s canvas (and therefore
-///    its `TutorWriter`) until SwiftUI's next render pass. A `[WRITE:...]`
-///    that opens the tutor page for the first time would otherwise hand a
-///    latex string to a writer that doesn't exist yet. `handle` buffers any
-///    write that arrives before `attach(writer:)` fires, and flushes them,
-///    in order, once it does.
-/// 2. **Anchoring:** `TutorWriter.write` is `async` and returns the written
-///    bounding rect; `writeHandler` is a sync `Void` closure. This type owns
-///    the running `lastRect` the coordinator's wiring note calls for, and
-///    kicks off the actual (async) write in its own `Task`.
+///    `await writeHandler(...)` back to back — but `showTutorPage` flipping
+///    true doesn't mount `TutorPagePopup`'s canvas (and therefore its
+///    `TutorWriter`) until SwiftUI's next render pass. A `[WRITE:...]` that
+///    opens the tutor page for the first time would otherwise hand a latex
+///    string to a writer that doesn't exist yet. `handle` suspends (via a
+///    buffered continuation) any write that arrives before `attach(writer:)`
+///    fires, and resumes it, in order, once it does — instead of firing a
+///    detached `Task` that `writeHandler`'s caller couldn't `await`, which
+///    is what a synchronous `handle` had to do before `WriteHandler` became
+///    `async`.
+/// 2. **Anchoring:** this type owns the running `lastRect` (`.belowLast`'s
+///    placement — see the doc comment on `write` below) across calls.
 @MainActor
 private final class TutorWriteRouter {
-    private weak var writer: TutorWriter?
+    private(set) weak var writer: TutorWriter?
     private var lastRect: CGRect?
-    private var pending: [(latex: String, anchor: Anchor)] = []
+    private var pending: [(latex: String, anchor: Anchor, continuation: CheckedContinuation<[TutorWriterLayout.GlyphPlacement], Never>)] = []
+
+    /// The written glyph content, in page-point space — `TutorCoordinator`'s
+    /// `writtenLayerProvider` reads this to composite the tutor's own
+    /// handwriting into the tutor page's snapshot (`TutorWriter.contentLayer`'s
+    /// doc comment). `nil` until `attach(writer:)` fires, same as `writer`.
+    var contentLayer: CALayer? { writer?.contentLayer }
 
     /// Left margin + first line's top, and the vertical gap between
     /// consecutive writes — arbitrary layout constants (no spec'd values),
@@ -228,20 +237,27 @@ private final class TutorWriteRouter {
         let queued = pending
         pending.removeAll()
         for item in queued {
-            write(latex: item.latex, anchor: item.anchor)
+            Task { @MainActor in
+                let placements = await self.write(latex: item.latex, anchor: item.anchor)
+                item.continuation.resume(returning: placements)
+            }
         }
     }
 
-    func handle(latex: String, anchor: Anchor) {
-        guard writer != nil else {
-            pending.append((latex, anchor))
-            return
+    /// Returns the written glyphs' placements (empty if latex failed to
+    /// parse) once the write animation completes — matches `WriteHandler`'s
+    /// contract exactly, so this can be handed to `TutorCoordinator` as-is.
+    func handle(latex: String, anchor: Anchor) async -> [TutorWriterLayout.GlyphPlacement] {
+        if writer == nil {
+            return await withCheckedContinuation { continuation in
+                pending.append((latex, anchor, continuation))
+            }
         }
-        write(latex: latex, anchor: anchor)
+        return await write(latex: latex, anchor: anchor)
     }
 
-    private func write(latex: String, anchor: Anchor) {
-        guard let writer else { return }
+    private func write(latex: String, anchor: Anchor) async -> [TutorWriterLayout.GlyphPlacement] {
+        guard let writer else { return [] }
         let origin: CGPoint
         switch anchor {
         case .belowLast, .below(_):
@@ -260,10 +276,9 @@ private final class TutorWriteRouter {
                 origin = CGPoint(x: Self.leftMargin, y: Self.topMargin)
             }
         }
-        Task { @MainActor in
-            let rect = await writer.write(latex: latex, at: origin, height: Self.lineHeight)
-            self.lastRect = rect
-        }
+        let result = await writer.write(latex: latex, at: origin, height: Self.lineHeight)
+        lastRect = result.bounds
+        return result.placements
     }
 }
 

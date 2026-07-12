@@ -12,6 +12,17 @@ struct Mark: Equatable {
     let bbox: CGRect
     let line: Int
     let strokeIndices: [Int]
+    /// True for marks produced by the tutor's own `[WRITE:...]` handwriting
+    /// (`TutorWriter`'s `CAShapeLayer`s, which never enter any `PKDrawing`
+    /// and so have no `strokeIndices` of their own — always `[]` on a
+    /// written mark) rather than real ink strokes. Lets the model, via
+    /// `registryJSON`, tell its own writing apart from the student's.
+    /// Defaulted so every existing `Mark(id:bbox:line:strokeIndices:)` call
+    /// site (ink-derived marks) is unaffected. `var`, not `let`: Swift's
+    /// synthesized memberwise init only accepts a defaulted parameter for
+    /// `var` stored properties — a defaulted `let` is excluded from the
+    /// init entirely (compile error: "extra argument 'written' in call").
+    var written: Bool = false
 }
 
 /// Deterministically clusters a `PKDrawing`'s strokes into marks, and marks
@@ -161,7 +172,12 @@ enum MarkRegistry {
             let y = Int(b.origin.y.rounded())
             let w = Int(b.width.rounded())
             let h = Int(b.height.rounded())
-            return "{\"id\":\(mark.id),\"bbox\":[\(x),\(y),\(w),\(h)],\"line\":\(mark.line)}"
+            // Omitted (not "written":false) for ink-derived marks — keeps
+            // the common case's payload exactly as small as before this
+            // field existed; the model only needs to know the ones that ARE
+            // the tutor's own writing.
+            let writtenField = mark.written ? ",\"written\":true" : ""
+            return "{\"id\":\(mark.id),\"bbox\":[\(x),\(y),\(w),\(h)],\"line\":\(mark.line)\(writtenField)}"
         }.joined(separator: ",")
         return "{\"page\":\"\(page)\",\"marks\":[\(marksJSON)]}"
     }

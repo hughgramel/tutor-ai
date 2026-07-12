@@ -344,6 +344,19 @@ final class TutorWriter: UIView {
     let pageSize: CGSize
     private var writtenContainers: [CALayer] = []
 
+    /// Holds every glyph this writer has drawn, in pure page-point space
+    /// with NO zoom/pan transform ever applied to it — `self.layer` (this
+    /// view's own root layer) carries `setZoom`'s live transform for
+    /// on-screen presentation, but a snapshot compositor (`SnapshotRenderer`,
+    /// via `TutorCoordinator`'s `WrittenLayerProvider`) needs the
+    /// untransformed content so it lines up, scale-for-scale, with the
+    /// identity-space rendering `PKDrawing.image(from:scale:)` already
+    /// produces for the page's real ink. A sibling sublayer of `self.layer`
+    /// rather than `self.layer` itself, so it never inherits that
+    /// transform. Not `private` so `TutorCoordinator`'s written-layer
+    /// closure (wired at `CanvasScreen`) can read it.
+    let contentLayer = CALayer()
+
     /// `pageView`'s current bounds become this overlay's page size (mirrors
     /// `AnnotationOverlayView`'s `init(pageSize:)`, inferred from the host
     /// instead of passed explicitly, per this task's requested signature).
@@ -354,6 +367,9 @@ final class TutorWriter: UIView {
         backgroundColor = .clear
         layer.anchorPoint = .zero
         layer.position = .zero
+        contentLayer.anchorPoint = .zero
+        contentLayer.frame = CGRect(origin: .zero, size: pageSize)
+        layer.addSublayer(contentLayer)
         pageView.addSubview(self)
     }
 
@@ -370,22 +386,31 @@ final class TutorWriter: UIView {
         layer.transform = CATransform3DMakeScale(zoom, zoom, 1)
     }
 
+    /// One `write(...)` call's result: the written bounding rect (so callers
+    /// can anchor the next `[WRITE:...|below:last]` beneath it — the
+    /// pre-existing contract) plus the per-glyph placements that produced
+    /// it, in the same page/canvas space, so a caller (`TutorCoordinator`)
+    /// can turn the tutor's own handwriting into addressable `Mark`s.
+    struct WriteResult {
+        let bounds: CGRect
+        let placements: [TutorWriterLayout.GlyphPlacement]
+    }
+
     /// Hand-writes `latex` starting at `origin` (page space, top-left),
     /// scaled so the whole equation is `height` points tall. Glyphs animate
     /// in reading order; within each glyph, strokes animate in
-    /// `glyphStrokes`' authored order. Returns the written bounding rect so
-    /// callers can anchor the next `[WRITE:...|below:last]` beneath it.
-    /// Never throws/crashes on unparseable latex or missing glyphs — both
-    /// degrade to a logged fallback (Task 11's stated contract).
+    /// `glyphStrokes`' authored order. Never throws/crashes on unparseable
+    /// latex or missing glyphs — both degrade to a logged fallback (Task
+    /// 11's stated contract).
     @discardableResult
-    func write(latex: String, at origin: CGPoint, height: CGFloat) async -> CGRect {
+    func write(latex: String, at origin: CGPoint, height: CGFloat) async -> WriteResult {
         guard let (placements, bounds) = TutorWriterLayout.layout(latex: latex, at: origin, height: height) else {
             // TutorWriterLayout.layout already logged the reason.
-            return CGRect(origin: origin, size: .zero)
+            return WriteResult(bounds: CGRect(origin: origin, size: .zero), placements: [])
         }
 
         let container = CALayer()
-        layer.addSublayer(container)
+        contentLayer.addSublayer(container)
         writtenContainers.append(container)
 
         for placement in placements {
@@ -400,7 +425,7 @@ final class TutorWriter: UIView {
             }
         }
 
-        return bounds
+        return WriteResult(bounds: bounds, placements: placements)
     }
 
     /// Removes every layer any past `write` call added. Nothing is ever
@@ -490,8 +515,8 @@ private struct TutorWriterPreview: UIViewRepresentable {
         writer.setZoom(1, contentOffset: .zero)
 
         Task { @MainActor in
-            let firstRect = await writer.write(latex: "x^2+8x+12=0", at: CGPoint(x: 60, y: 140), height: 56)
-            _ = await writer.write(latex: "(x+2)(x+6)=0", at: CGPoint(x: 60, y: firstRect.maxY + 56), height: 56)
+            let first = await writer.write(latex: "x^2+8x+12=0", at: CGPoint(x: 60, y: 140), height: 56)
+            _ = await writer.write(latex: "(x+2)(x+6)=0", at: CGPoint(x: 60, y: first.bounds.maxY + 56), height: 56)
         }
 
         return container

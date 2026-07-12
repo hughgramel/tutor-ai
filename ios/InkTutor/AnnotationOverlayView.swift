@@ -386,14 +386,17 @@ private final class TutorPointer {
     let imageView: UIImageView
 
     init() {
-        let config = UIImage.SymbolConfiguration(pointSize: 22, weight: .semibold)
-        let image = UIImage(systemName: "hand.point.up.left.fill", withConfiguration: config)
+        // Minimalist triangle cursor (Hugh, 2026-07-12: "more triangle,
+        // minimalist" — was a blue pointing hand). location.north.fill is a
+        // clean filled triangle; near-black, subtle shadow, smaller.
+        let config = UIImage.SymbolConfiguration(pointSize: 16, weight: .semibold)
+        let image = UIImage(systemName: "location.north.fill", withConfiguration: config)
         imageView = UIImageView(image: image)
-        imageView.tintColor = .systemBlue
+        imageView.tintColor = UIColor.black.withAlphaComponent(0.85)
         imageView.sizeToFit()
         imageView.layer.shadowColor = UIColor.black.cgColor
-        imageView.layer.shadowOpacity = 0.35
-        imageView.layer.shadowRadius = 3
+        imageView.layer.shadowOpacity = 0.2
+        imageView.layer.shadowRadius = 2
         imageView.layer.shadowOffset = CGSize(width: 0, height: 1)
         imageView.alpha = 0
         imageView.isUserInteractionEnabled = false
@@ -555,6 +558,22 @@ final class AnnotationOverlayView: UIView {
             self.pointer.imageView.layer.position = tip
             self.pointer.imageView.layer.add(ride, forKey: "ride")
 
+            // Pointer's job ends the moment the ink is drawn — vanish promptly
+            // (Hugh, 2026-07-12: it was lingering through the whole 3s hold
+            // + fade). The annotation itself still holds, then fades.
+            DispatchQueue.main.asyncAfter(deadline: .now() + drawDuration) {
+                let pointerFade = CABasicAnimation(keyPath: "opacity")
+                pointerFade.fromValue = 1
+                pointerFade.toValue = 0
+                pointerFade.duration = 0.25
+                self.pointer.imageView.layer.opacity = 0
+                self.pointer.imageView.layer.add(pointerFade, forKey: "fadePointer")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                    self.pointer.imageView.alpha = 0
+                    self.pointer.imageView.layer.opacity = 1 // reset for next flight-in
+                }
+            }
+
             DispatchQueue.main.asyncAfter(deadline: .now() + drawDuration + Self.holdDuration) {
                 let fade = CABasicAnimation(keyPath: "opacity")
                 fade.fromValue = 1
@@ -562,13 +581,9 @@ final class AnnotationOverlayView: UIView {
                 fade.duration = Self.fadeDuration
                 shapeLayer.opacity = 0
                 shapeLayer.add(fade, forKey: "fadeShape")
-                self.pointer.imageView.layer.opacity = 0
-                self.pointer.imageView.layer.add(fade, forKey: "fadePointer")
 
                 DispatchQueue.main.asyncAfter(deadline: .now() + Self.fadeDuration) {
                     shapeLayer.removeFromSuperlayer()
-                    self.pointer.imageView.alpha = 0
-                    self.pointer.imageView.layer.opacity = 1 // reset for next flight-in fade
                     completion()
                 }
             }

@@ -201,15 +201,12 @@ struct VoiceBarView: View {
     /// on the post-morph pill, so holding "Ask AI" and speaking went
     /// nowhere). Press-down here starts connecting AND queues the hold; the
     /// mic goes live the instant the session is up; release commits.
+    /// Mic glyph, not a waveform (Hugh, 2026-07-12: the waveform belongs to
+    /// the live state only — idle shows what the button DOES: hold to talk).
     private var idleContent: some View {
-        HStack(spacing: 10) {
-            HStack(spacing: 2.5) {
-                ForEach(Array(Self.idleWaveHeights.enumerated()), id: \.offset) { _, h in
-                    Capsule()
-                        .fill(connection == .error ? Color.red : Color.primary.opacity(0.75))
-                        .frame(width: 2.5, height: h)
-                }
-            }
+        HStack(spacing: 8) {
+            Image(systemName: "mic.fill")
+                .font(.system(size: 15, weight: .semibold))
             Text("Ask AI")
                 .font(.system(size: 15, weight: .semibold, design: .rounded))
         }
@@ -303,19 +300,16 @@ struct VoiceBarView: View {
     private var subtitleBox: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                VStack(alignment: .trailing, spacing: 3) {
+                VStack(alignment: .leading, spacing: 3) {
+                    // Uniform grey, whole lines only (Hugh, 2026-07-12: the
+                    // emphasized live line + word-by-word reveal distracted —
+                    // lines appear complete, once spoken; the word-paced loop
+                    // still runs underneath purely for timing).
                     ForEach(tutorLines) { line in
                         Text(line.text)
                             .font(.system(size: 13))
-                            .foregroundStyle(.primary)
-                            .opacity(0.6)
-                            .multilineTextAlignment(.trailing)
-                    }
-                    if !currentLine.isEmpty {
-                        Text(currentLine)
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(.primary)
-                            .multilineTextAlignment(.trailing)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.leading)
                     }
                     Color.clear.frame(height: 1).id(Self.bottomAnchorID)
                 }
@@ -327,7 +321,7 @@ struct VoiceBarView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .frame(maxWidth: 260, alignment: .trailing)
+        .frame(maxWidth: 260, alignment: .leading)
         .glassBackground(cornerRadius: 16)
         .onTapGesture { toggleExpanded() }
     }
@@ -337,7 +331,7 @@ struct VoiceBarView: View {
     /// put — this is just another item further down the same trailing-
     /// aligned VStack the compact box already lived in).
     private var expandedPanel: some View {
-        VStack(alignment: .trailing, spacing: 0) {
+        VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Text("Conversation")
                     .font(.system(size: 11, weight: .semibold, design: .rounded))
@@ -354,16 +348,12 @@ struct VoiceBarView: View {
 
             ScrollViewReader { proxy in
                 ScrollView {
-                    VStack(alignment: .trailing, spacing: 6) {
+                    VStack(alignment: .leading, spacing: 6) {
                         ForEach(chatHistory) { line in
                             chatLineView(line)
                         }
-                        if !currentLine.isEmpty {
-                            Text(currentLine)
-                                .font(.system(size: 14, weight: .medium))
-                                .foregroundStyle(.primary)
-                                .multilineTextAlignment(.trailing)
-                        }
+                        // (No live currentLine here either — whole lines only,
+                        // same as compact mode.)
                         Color.clear.frame(height: 1).id(Self.bottomAnchorID)
                     }
                     .padding(.horizontal, 14)
@@ -384,14 +374,14 @@ struct VoiceBarView: View {
         case .tutor:
             Text(line.text)
                 .font(.system(size: 14))
-                .foregroundStyle(.primary)
-                .multilineTextAlignment(.trailing)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.leading)
         case .student:
             Text("you: \(line.text)")
                 .font(.system(size: 13, design: .default).italic())
                 .foregroundStyle(.primary)
                 .opacity(0.55)
-                .multilineTextAlignment(.trailing)
+                .multilineTextAlignment(.leading)
         }
     }
 
@@ -428,8 +418,8 @@ struct VoiceBarView: View {
             .opacity(0.45)
             .lineLimit(1)
             .truncationMode(.middle)
-            .multilineTextAlignment(.trailing)
-            .frame(maxWidth: 260, alignment: .trailing)
+            .multilineTextAlignment(.leading)
+            .frame(maxWidth: 260, alignment: .leading)
             .padding(.horizontal, 14)
     }
 
@@ -612,23 +602,47 @@ struct VoiceBarView: View {
         startRevealLoopIfNeeded()
     }
 
+    /// When the speaker was last actually producing sound — set from the
+    /// measured WebRTC output level in `streamAudioLevels`, NOT from the
+    /// `output_audio_buffer.started` event (`session.isSpeaking`), which was
+    /// flagged unverifiable on this transport and, when it doesn't fire,
+    /// let text flow at token speed (Hugh, 2026-07-12: "highlighting is
+    /// still as tokens come in, not as the voice speaks").
+    @State private var lastAudioEnergyAt: Date = .distantPast
+
+    /// True while sound is measurably coming out of the speaker (with a
+    /// small grace window so inter-word gaps don't stall the reveal).
+    private var audioLive: Bool {
+        session.isSpeaking || Date().timeIntervalSince(lastAudioEnergyAt) < 0.45
+    }
+
     private func startRevealLoopIfNeeded() {
         guard revealTask == nil else { return }
         revealTask = Task { @MainActor in
-            var waitedMs = 0
-            let maxWaitMs = 2000 // bounded: don't hang forever if audio never starts
-            while !session.isSpeaking && !pendingSpeech.isEmpty && !Task.isCancelled && waitedMs < maxWaitMs {
-                try? await Task.sleep(nanoseconds: 20_000_000)
-                waitedMs += 20
-            }
             while !pendingSpeech.isEmpty && !Task.isCancelled {
+                guard audioLive else {
+                    // No sound right now. Two cases: audio hasn't started yet
+                    // (or paused mid-response) → hold the text; dead air for
+                    // >1.5s with words still queued → response is over or
+                    // truncated, drain fast so the box never lags a finished
+                    // voice.
+                    if Date().timeIntervalSince(lastAudioEnergyAt) > 1.5 && !isThinking {
+                        while !pendingSpeech.isEmpty && !Task.isCancelled {
+                            let word = popNextWord()
+                            currentLine += word
+                            completeLineIfSentenceEnded(word)
+                            try? await Task.sleep(nanoseconds: 25_000_000)
+                        }
+                        break
+                    }
+                    try? await Task.sleep(nanoseconds: 40_000_000)
+                    continue
+                }
                 let word = popNextWord()
                 currentLine += word
                 completeLineIfSentenceEnded(word)
                 let msPerChar = TutorLog.shared.lastSpeechPaceMsPerChar ?? 45
-                let ms = session.isSpeaking
-                    ? min(max(Double(word.count) * msPerChar, 90), 320)
-                    : 25 // audio done — drain the rest quickly
+                let ms = min(max(Double(word.count) * msPerChar, 90), 320)
                 try? await Task.sleep(nanoseconds: UInt64(ms * 1_000_000))
             }
             revealTask = nil
@@ -683,6 +697,12 @@ struct VoiceBarView: View {
                 // Feeding the idle level through the normal attack/decay path
                 // lets active bars settle to flat instead of snapping.
                 pushLevel(isHolding ? CGFloat(level) : Self.idleBarLevel)
+                // While NOT holding, nonzero energy = the tutor's voice is
+                // actually audible right now — the subtitle reveal gates on
+                // this measured signal (see startRevealLoopIfNeeded).
+                if !isHolding && level > 0.02 {
+                    lastAudioEnergyAt = Date()
+                }
             }
         }
     }
@@ -764,7 +784,7 @@ private struct VoiceBarPreviewHost: View {
             pageSize: CGSize(width: 768, height: 1024),
             performer: PreviewAnnotationPerformer(),
             openTutorPage: {},
-            writeHandler: { _, _ in }
+            writeHandler: { _, _ in [] }
         )
         return ZStack {
             Color.gray.opacity(0.2).ignoresSafeArea()

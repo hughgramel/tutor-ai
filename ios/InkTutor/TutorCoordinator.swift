@@ -35,11 +35,32 @@ protocol AnnotationPerforming: AnyObject {
 /// file. No page parameter: WRITE is structurally always the tutor's own
 /// page (see `dispatchWrite` below) — there is no wire representation for
 /// "write on the student's page" for a handler to even receive.
-typealias WriteHandler = (_ latex: String, _ anchor: Anchor) -> Void
+///
+/// `async`, returning the written glyphs' placements (page/canvas space):
+/// `TutorWriter.write` lays out per-glyph frames internally but only ever
+/// handed back the aggregate bounding rect — this closure's return value is
+/// how those per-glyph frames reach `TutorCoordinator`, which turns them
+/// into addressable `Mark`s (`appendWrittenMarks`) so `[ARROW:a>b]`/
+/// `[CIRCLE:n]` can target the tutor's own handwriting, not just ink. Empty
+/// array if the writer isn't attached yet or the latex failed to parse.
+typealias WriteHandler = (_ latex: String, _ anchor: Anchor) async -> [TutorWriterLayout.GlyphPlacement]
 
 /// Opens the tutor's popup page. At wiring time this is
 /// `{ showTutorPage = true }` in `CanvasScreen`.
 typealias OpenTutorPageHandler = () -> Void
+
+/// Reports the `CALayer` holding the tutor's handwritten glyph content —
+/// `TutorWriter.contentLayer`, already in untransformed page-point space —
+/// so `pushEnrichedSnapshot` can composite it into the tutor page's
+/// snapshot the same way `SnapshotRenderer` already composites
+/// `page.drawing`. `TutorWriter`'s `CAShapeLayer`s never enter any
+/// `PKDrawing`, so without this the tutor page's own snapshot would never
+/// show what the tutor wrote. Returns `nil` before the tutor page's
+/// `TutorWriter` exists yet (student page never calls this). Defaulted to
+/// `{ nil }` at `TutorCoordinator.init` so existing callers (tests, the
+/// `VoiceBarView` preview) that don't care about snapshot compositing don't
+/// need updating.
+typealias WrittenLayerProvider = () -> CALayer?
 
 // MARK: - Journal (Task 7, capped)
 
@@ -90,6 +111,7 @@ final class TutorCoordinator {
     private let performer: AnnotationPerforming
     private let openTutorPageHandler: OpenTutorPageHandler
     private let writeHandler: WriteHandler
+    private let writtenLayerProvider: WrittenLayerProvider
 
     init(
         session: TutorSession,
@@ -98,7 +120,8 @@ final class TutorCoordinator {
         pageSize: CGSize,
         performer: AnnotationPerforming,
         openTutorPage: @escaping OpenTutorPageHandler,
-        writeHandler: @escaping WriteHandler
+        writeHandler: @escaping WriteHandler,
+        writtenLayerProvider: @escaping WrittenLayerProvider = { nil }
     ) {
         self.session = session
         self.studentPage = studentPage
@@ -107,6 +130,7 @@ final class TutorCoordinator {
         self.performer = performer
         self.openTutorPageHandler = openTutorPage
         self.writeHandler = writeHandler
+        self.writtenLayerProvider = writtenLayerProvider
     }
 
     deinit {
@@ -123,6 +147,21 @@ final class TutorCoordinator {
     /// student adds a stroke elsewhere).
     private var currentMarks: [UUID: [Mark]] = [:]
 
+    /// Marks for glyphs `TutorWriter` has hand-written on the tutor page —
+    /// the WRITE-tag analog of `currentMarks`, but not keyed by page id: a
+    /// single flat list is enough because WRITE is structurally always the
+    /// tutor's own page (see `dispatchWrite`'s doc comment). Populated by
+    /// `appendWrittenMarks` after each completed WRITE; never recomputed
+    /// from scratch the way `currentMarks` is (there's no PKDrawing to
+    /// recompute FROM — a written mark's geometry is exactly what
+    /// `TutorWriter` laid out, once, and doesn't move).
+    private var writtenMarks: [Mark] = []
+    /// One shared `line` number per WRITE call (every glyph an equation
+    /// produces reads, to a human, as "one line" — matches how the model
+    /// would say "circle the whole equation"), incrementing per call so two
+    /// separate WRITEs don't collide on the same line number.
+    private var nextWrittenLine = 0
+
     /// Computes marks for `page.drawing`, renders + labels a snapshot, and
     /// pushes both the labeled JPEG and the registry JSON to the session.
     /// This is the ONE call the canvas layer should make per debounced
@@ -130,14 +169,40 @@ final class TutorCoordinator {
     /// call `CanvasView.Coordinator.pushSnapshotIfDue` makes today (that
     /// method already owns the debounce/min-interval/unchanged-drawing
     /// gating from the plan's image-context budget; only the "what do I
-    /// push" step changes, not the "when").
+    /// push" step changes, not the "when"). Also the call `dispatchWrite`
+    /// makes directly (not through the debounced canvas path — there's no
+    /// PKCanvasView stroke to debounce off of) once a WRITE completes, so
+    /// the tutor page's own writing becomes visible + addressable to the
+    /// model right after it's drawn.
+    ///
+    /// For the tutor page specifically, this also folds in `writtenMarks`
+    /// (ink-only `MarkRegistry.compute` can't see `TutorWriter`'s
+    /// CAShapeLayers — they never enter any `PKDrawing`) into both the
+    /// registry JSON and the rendered snapshot (via `writtenLayerProvider`).
     @discardableResult
     func pushEnrichedSnapshot(for page: PageModel) async -> [Mark] {
-        let previous = currentMarks[page.id] ?? []
-        let marks = MarkRegistry.compute(drawing: page.drawing, previous: previous)
-        currentMarks[page.id] = marks
+        let isTutorPage = page.id == tutorPage.id
+        let strokePrevious = currentMarks[page.id] ?? []
+        // Seed MarkRegistry's own nextID counter (`previous.map(\.id).max()
+        // + 1`) with writtenMarks' IDs too, on the tutor page, so a brand
+        // new ink stroke there can never land on an ID a written glyph
+        // already holds — the two mark kinds share one counter space (see
+        // `nextMarkID(for:)`, the written side of the same guarantee).
+        // Feeding writtenMarks into `previous` also makes them eligible for
+        // MarkRegistry's bbox-overlap ID-matching, so a real stroke drawn
+        // directly on top of written ink could in principle inherit its
+        // mark ID — a documented judgment call (same status as this file's
+        // existing same-id-on-both-pages tiebreak), not expected in
+        // practice since the tutor page is scratch space the tutor writes
+        // on, not the student.
+        let seedPrevious = isTutorPage ? strokePrevious + writtenMarks : strokePrevious
+        let strokeMarks = MarkRegistry.compute(drawing: page.drawing, previous: seedPrevious)
+        currentMarks[page.id] = strokeMarks
 
-        let snapshot = SnapshotRenderer.render(page: page, pageSize: pageSize)
+        let marks = isTutorPage ? strokeMarks + writtenMarks : strokeMarks
+
+        let writerLayer = isTutorPage ? writtenLayerProvider() : nil
+        let snapshot = SnapshotRenderer.render(page: page, pageSize: pageSize, writerLayer: writerLayer)
         let jpeg = labeledJpeg(from: snapshot, marks: marks)
 
         await session.pushImage(jpeg)
@@ -145,6 +210,40 @@ final class TutorCoordinator {
         appendJournal(.snapshotPushed(page: pageName(for: page), markCount: marks.count))
 
         return marks
+    }
+
+    /// Turns one WRITE call's glyph placements into `Mark`s — one mark per
+    /// glyph (a written equation is a handful of characters; per-glyph IDs
+    /// are cheap and let `[ARROW:a>b]` target an individual term, e.g. the
+    /// "2" a distributed multiplication arcs out from, not just "the whole
+    /// equation"). IDs come from `nextMarkID(for:)`, the same counter space
+    /// `MarkRegistry.compute` seeds from for ink — see that method's doc.
+    @discardableResult
+    private func appendWrittenMarks(_ placements: [TutorWriterLayout.GlyphPlacement]) -> [Mark] {
+        guard !placements.isEmpty else { return [] }
+        let line = nextWrittenLine
+        nextWrittenLine += 1
+
+        var id = nextMarkID(for: tutorPage)
+        var newMarks: [Mark] = []
+        newMarks.reserveCapacity(placements.count)
+        for placement in placements {
+            newMarks.append(Mark(id: id, bbox: placement.frame, line: line, strokeIndices: [], written: true))
+            id += 1
+        }
+        writtenMarks.append(contentsOf: newMarks)
+        return newMarks
+    }
+
+    /// The next free mark ID for `page`, seeded above the highest ID either
+    /// mark kind currently holds on that page — the shared counter space
+    /// `MarkRegistry.compute` (ink) and `appendWrittenMarks` (written) both
+    /// draw from, so the same integer can never mean "ink stroke" on one
+    /// push and "written glyph" on the next.
+    private func nextMarkID(for page: PageModel) -> Int {
+        let strokeMax = currentMarks[page.id]?.map(\.id).max() ?? 0
+        let writtenMax = writtenMarks.map(\.id).max() ?? 0
+        return max(strokeMax, writtenMax) + 1
     }
 
     /// Decodes the rendered (unlabeled) JPEG back to a `UIImage`, burns the
@@ -233,7 +332,7 @@ final class TutorCoordinator {
         case .newPage:
             openTutorPageIfNeeded()
         case .write(let latex, let anchor):
-            dispatchWrite(latex: latex, anchor: anchor)
+            await dispatchWrite(latex: latex, anchor: anchor)
         case .wait(let seconds):
             // No-op beyond logging — the client honors silence elsewhere
             // (suppressing client-triggered response.create calls is a
@@ -285,12 +384,18 @@ final class TutorCoordinator {
     /// (Task 13) lists CIRCLE/UNDERLINE/ARROW/HIGHLIGHT as valid on
     /// "either page's marks" without a disambiguation rule for a collision,
     /// so this is a documented judgment call, not a spec'd behavior:
-    /// student-page ink wins the tie.
+    /// student-page ink wins the tie. Checks `writtenMarks` last — tutor
+    /// page only, and `nextMarkID(for:)` already keeps written IDs disjoint
+    /// from the tutor page's own `currentMarks` entry, so there's no
+    /// three-way tie to break there.
     private func resolveMark(id: Int) -> (mark: Mark, page: PageModel)? {
         if let mark = currentMarks[studentPage.id]?.first(where: { $0.id == id }) {
             return (mark, studentPage)
         }
         if let mark = currentMarks[tutorPage.id]?.first(where: { $0.id == id }) {
+            return (mark, tutorPage)
+        }
+        if let mark = writtenMarks.first(where: { $0.id == id }) {
             return (mark, tutorPage)
         }
         return nil
@@ -304,10 +409,20 @@ final class TutorCoordinator {
     /// drawing. If the tutor page isn't open yet, open it first, then
     /// write (never silently drop a WRITE just because NEWPAGE was
     /// skipped).
-    private func dispatchWrite(latex: String, anchor: Anchor) {
+    ///
+    /// Once the write completes, its glyphs become addressable marks
+    /// (`appendWrittenMarks`) and an enriched snapshot of the tutor page
+    /// goes out immediately — the debounced push `CanvasView.Coordinator`
+    /// schedules on stroke-end never fires here (nothing changed in any
+    /// `PKDrawing`), so without this push the model would never learn the
+    /// IDs it needs to target what the tutor just wrote.
+    private func dispatchWrite(latex: String, anchor: Anchor) async {
         openTutorPageIfNeeded()
-        writeHandler(latex, anchor)
+        let placements = await writeHandler(latex, anchor)
         appendJournal(.wrote(latex: Self.stripTags(latex), anchor: describe(anchor)))
+        guard !placements.isEmpty else { return }
+        appendWrittenMarks(placements)
+        await pushEnrichedSnapshot(for: tutorPage)
     }
 
     private func openTutorPageIfNeeded() {
