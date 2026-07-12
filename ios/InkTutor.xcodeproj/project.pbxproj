@@ -11,6 +11,7 @@
 		0639B1DDF9A8D95C367EAA1F /* MarkRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C8E6D28DFEF18F60EA452E3 /* MarkRegistry.swift */; };
 		2023850D6F4E2FCFD177708B /* Glyphs.generated.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4820CB321413562DEE8DDF1F /* Glyphs.generated.swift */; };
 		3052D8FB174DBE26F0A826CF /* TagParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = D196AF68BEE8C2465A595D25 /* TagParser.swift */; };
+		373CB24A59246494E3C9D2BC /* TutorWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 185DBF7713BBF1DB3F647771 /* TutorWriter.swift */; };
 		38F9BE32A659E49F85211289 /* CanvasScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D8A2F6E513737A88D93FB9C /* CanvasScreen.swift */; };
 		433E67C39E7330CA330EE7BA /* PlaceholderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 657295A3C4B7C4D0ED19F627 /* PlaceholderTests.swift */; };
 		4BFF8C72615C8C772A845DED /* Problems.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BFA4FA8256279B9013AFF2F /* Problems.swift */; };
@@ -20,6 +21,7 @@
 		731AC6B6EE8ADFDD39BF6773 /* MarkRegistryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB2122238A680F792BB5C8B2 /* MarkRegistryTests.swift */; };
 		762A1C26DDFA516824068412 /* assignment.pdf in Resources */ = {isa = PBXBuildFile; fileRef = 637A7394525D3B9DF4BF8288 /* assignment.pdf */; };
 		7B3EA07447AA52C8843000B8 /* PageModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 483F622626E09F2F5B1CBB50 /* PageModel.swift */; };
+		8B73FC6C8B4A29064F2D77EB /* SwiftMath in Frameworks */ = {isa = PBXBuildFile; productRef = 54B8B024BD1AABCAB7364844 /* SwiftMath */; };
 		8BD13F3D6FAD1AA3F7403A9E /* WebRTC in Frameworks */ = {isa = PBXBuildFile; productRef = 3B3516D40872201B9DB26222 /* WebRTC */; };
 		A1CA8E047C79B7341D79CA6A /* TutorLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89F69BBA8C8E4B46B99F469E /* TutorLog.swift */; };
 		A9CACA6730C593CDAF601E24 /* worksheet-equations-word-problems.pdf in Resources */ = {isa = PBXBuildFile; fileRef = E2ADF9C29B4AADB88A787555 /* worksheet-equations-word-problems.pdf */; };
@@ -30,6 +32,7 @@
 		CD07A64BF354BE16EE9A9FAB /* InkTutorApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 173B6CA5575873348E765E1E /* InkTutorApp.swift */; };
 		DE0F70914330DB14452EEEFD /* VoiceBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 725A77CC7DBDBDE2D2F8BB47 /* VoiceBarView.swift */; };
 		DEC87AD64D75BC4AF4C3C9C6 /* SnapshotTransformTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50BCDD75EB177C5B15EAA3B5 /* SnapshotTransformTests.swift */; };
+		FD900F3D04655AD9D5144B26 /* TutorWriterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 773410DD75622CCDAD81D8FA /* TutorWriterTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -45,6 +48,7 @@
 /* Begin PBXFileReference section */
 		0FD8EE9DD8ABC6D38EAAB09A /* TutorSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TutorSession.swift; sourceTree = "<group>"; };
 		173B6CA5575873348E765E1E /* InkTutorApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InkTutorApp.swift; sourceTree = "<group>"; };
+		185DBF7713BBF1DB3F647771 /* TutorWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TutorWriter.swift; sourceTree = "<group>"; };
 		4820CB321413562DEE8DDF1F /* Glyphs.generated.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Glyphs.generated.swift; sourceTree = "<group>"; };
 		483F622626E09F2F5B1CBB50 /* PageModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PageModel.swift; sourceTree = "<group>"; };
 		4D5BC5008BAB4F838B9A10E5 /* Snapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Snapshot.swift; sourceTree = "<group>"; };
@@ -56,6 +60,7 @@
 		6BFA4FA8256279B9013AFF2F /* Problems.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Problems.swift; sourceTree = "<group>"; };
 		6C8E6D28DFEF18F60EA452E3 /* MarkRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkRegistry.swift; sourceTree = "<group>"; };
 		725A77CC7DBDBDE2D2F8BB47 /* VoiceBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceBarView.swift; sourceTree = "<group>"; };
+		773410DD75622CCDAD81D8FA /* TutorWriterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TutorWriterTests.swift; sourceTree = "<group>"; };
 		81A1161D5201C918F39AABDC /* CanvasView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanvasView.swift; sourceTree = "<group>"; };
 		89F69BBA8C8E4B46B99F469E /* TutorLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TutorLog.swift; sourceTree = "<group>"; };
 		B430EA41F546F95E59677D13 /* AnnotationGeometryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnnotationGeometryTests.swift; sourceTree = "<group>"; };
@@ -75,6 +80,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				8BD13F3D6FAD1AA3F7403A9E /* WebRTC in Frameworks */,
+				8B73FC6C8B4A29064F2D77EB /* SwiftMath in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -107,6 +113,7 @@
 				D196AF68BEE8C2465A595D25 /* TagParser.swift */,
 				89F69BBA8C8E4B46B99F469E /* TutorLog.swift */,
 				0FD8EE9DD8ABC6D38EAAB09A /* TutorSession.swift */,
+				185DBF7713BBF1DB3F647771 /* TutorWriter.swift */,
 				725A77CC7DBDBDE2D2F8BB47 /* VoiceBarView.swift */,
 				1EA77254019FE876FC4DC37B /* Resources */,
 			);
@@ -121,6 +128,7 @@
 				657295A3C4B7C4D0ED19F627 /* PlaceholderTests.swift */,
 				50BCDD75EB177C5B15EAA3B5 /* SnapshotTransformTests.swift */,
 				FD7C4670EEF4DEFD9210D6BC /* TagParserTests.swift */,
+				773410DD75622CCDAD81D8FA /* TutorWriterTests.swift */,
 			);
 			path = InkTutorTests;
 			sourceTree = "<group>";
@@ -161,6 +169,7 @@
 			name = InkTutor;
 			packageProductDependencies = (
 				3B3516D40872201B9DB26222 /* WebRTC */,
+				54B8B024BD1AABCAB7364844 /* SwiftMath */,
 			);
 			productName = InkTutor;
 			productReference = BA868DA7B0C07E34149845E2 /* InkTutor.app */;
@@ -208,6 +217,7 @@
 			mainGroup = 950474E076187D3E4665C432;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
+				C5CB20B2A8875FADE634F949 /* XCRemoteSwiftPackageReference "SwiftMath" */,
 				F0DDA7AF2BA84D26657EAFBF /* XCRemoteSwiftPackageReference "WebRTC" */,
 			);
 			preferredProjectObjectVersion = 77;
@@ -243,6 +253,7 @@
 				433E67C39E7330CA330EE7BA /* PlaceholderTests.swift in Sources */,
 				DEC87AD64D75BC4AF4C3C9C6 /* SnapshotTransformTests.swift in Sources */,
 				511147B0E421F4BA44E84130 /* TagParserTests.swift in Sources */,
+				FD900F3D04655AD9D5144B26 /* TutorWriterTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -264,6 +275,7 @@
 				3052D8FB174DBE26F0A826CF /* TagParser.swift in Sources */,
 				A1CA8E047C79B7341D79CA6A /* TutorLog.swift in Sources */,
 				05A01214619121DDFC3D9775 /* TutorSession.swift in Sources */,
+				373CB24A59246494E3C9D2BC /* TutorWriter.swift in Sources */,
 				DE0F70914330DB14452EEEFD /* VoiceBarView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -505,6 +517,14 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		C5CB20B2A8875FADE634F949 /* XCRemoteSwiftPackageReference "SwiftMath" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/mgriebling/SwiftMath";
+			requirement = {
+				kind = exactVersion;
+				version = 1.7.3;
+			};
+		};
 		F0DDA7AF2BA84D26657EAFBF /* XCRemoteSwiftPackageReference "WebRTC" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/stasel/WebRTC.git";
@@ -520,6 +540,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = F0DDA7AF2BA84D26657EAFBF /* XCRemoteSwiftPackageReference "WebRTC" */;
 			productName = WebRTC;
+		};
+		54B8B024BD1AABCAB7364844 /* SwiftMath */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C5CB20B2A8875FADE634F949 /* XCRemoteSwiftPackageReference "SwiftMath" */;
+			productName = SwiftMath;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

@@ -7,6 +7,9 @@ packages:
   WebRTC:
     url: https://github.com/stasel/WebRTC.git
     exactVersion: 150.0.0
+  SwiftMath:
+    url: https://github.com/mgriebling/SwiftMath
+    exactVersion: 1.7.3   # exact: TutorWriter reads an internal via Mirror; minor bumps could break it
 targets:
   InkTutor:
     type: application
@@ -14,6 +17,7 @@ targets:
     sources: [InkTutor]
     dependencies:
       - package: WebRTC
+      - package: SwiftMath
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.tutorai.inktutor

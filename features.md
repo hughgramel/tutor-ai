@@ -173,12 +173,12 @@ pages exist to measure exactly this.
 
 ## Decisions Hugh owns (blocking build order)
 
-| # | Decision | Options | Research lean |
+| # | Decision | Options | Verdict (2026-07-12) |
 |---|---|---|---|
-| D1 | Voice provider | gpt-realtime (raw WebRTC) vs Gemini Live (Swift SDK, Preview) | Spike both Friday, 2h box |
-| D2 | Who finds the error | LLM reads the page vs deterministic check + LLM talks | Harness decides; lean deterministic if over-correction >20% |
-| D3 | Ink render path | CAShapeLayer (safe) vs synthetic PKStroke (prettier) | Start (a), upgrade to (b) if Saturday allows |
-| D4 | Parabola | in or stretch | Stretch (Gate 3 position, unchanged) |
+| D1 | Voice provider | gpt-realtime (raw WebRTC) vs Gemini Live (Swift SDK, Preview) | **DECIDED: gpt-realtime-2.1** (Hugh, in-session; no Gemini spike run). Built, compiles, tokens mint. Interaction = hold-to-talk, no VAD (Hugh, after device test — ambient noise killed open-mic) |
+| D2 | Who finds the error | LLM reads the page vs deterministic check + LLM talks | **Offline harness CUT** (Hugh: synthetic pages looked bad). Resolved instead by live device testing; deterministic check remains the escape hatch if the model over-corrects in practice |
+| D3 | Ink render path | CAShapeLayer (safe) vs synthetic PKStroke (prettier) | **Started (a)** CAShapeLayer, per plan. Upgrade unvisited |
+| D4 | Parabola | in or stretch | Stretch (unchanged) |
 
 ## Build order (proposal — riskiest first)
 
