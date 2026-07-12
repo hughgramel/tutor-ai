@@ -69,12 +69,14 @@ struct VoiceBarView: View {
                     .transition(.opacity)
             }
 
-            if let pillCaption {
-                Text(pillCaption)
-                    .font(.system(size: 11, weight: .medium, design: .rounded))
-                    .foregroundStyle(.secondary)
-                    .transition(.opacity)
-            }
+            // Fixed-height caption slot — conditional insertion shifted the
+            // chrome vertically every time the caption appeared/vanished
+            // (part of "it moves once you start holding").
+            Text(pillCaption ?? " ")
+                .font(.system(size: 11, weight: .medium, design: .rounded))
+                .foregroundStyle(.secondary)
+                .frame(height: 14)
+                .opacity(pillCaption == nil ? 0 : 1)
 
             morphingChrome
         }
@@ -114,8 +116,11 @@ struct VoiceBarView: View {
             idleContent.opacity(showPill ? 0 : 1)
             pillContent.opacity(showPill ? 1 : 0)
         }
-        .padding(.horizontal, showPill ? 12 : 18)
-        .padding(.vertical, showPill ? 10 : 13)
+        // Constant padding in both states — state-dependent padding made the
+        // whole chrome shift the instant a hold started (Hugh, device
+        // testing: "it moves once you start holding").
+        .padding(.horizontal, 18)
+        .padding(.vertical, 13)
         .contentShape(Capsule())
         .glassBackground(cornerRadius: 26, tint: connection == .error ? .red.opacity(0.15) : nil)
         .overlay(
@@ -126,11 +131,32 @@ struct VoiceBarView: View {
                 .allowsHitTesting(false)
         )
         .clipShape(Capsule())
-        .scaleEffect(isHolding ? 1.12 : (connection == .connecting ? 0.97 : 1.0))
+        .scaleEffect(isHolding ? 1.08 : 1.0)
         .animation(.spring(response: 0.25, dampingFraction: 0.7), value: isHolding)
-        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: showPill)
-        .onLongPressGesture(minimumDuration: 0.01, maximumDistance: 60, perform: {}, onPressingChanged: handlePress)
+        // DragGesture(minimumDistance: 0), NOT onLongPressGesture: the long-
+        // press variant reports pressing=false when the gesture *recognizes*
+        // (minimumDuration elapsing), not when the finger lifts — which is
+        // exactly the "release doesn't stop recording" bug from device
+        // testing. A zero-distance drag fires onChanged at touch-down and
+        // onEnded at actual lift, unconditionally.
+        .gesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in
+                    if !pressTracking {
+                        pressTracking = true
+                        handlePress(true)
+                    }
+                }
+                .onEnded { _ in
+                    pressTracking = false
+                    handlePress(false)
+                }
+        )
     }
+
+    /// Dedupes DragGesture.onChanged (fires continuously) into one
+    /// press-down edge.
+    @State private var pressTracking = false
 
     // MARK: - Idle state
 
