@@ -92,8 +92,8 @@ let glyphStrokes: [String: [[CGPoint]]] = [
         [CGPoint(x: 0.5213, y: 0.0000), CGPoint(x: 0.5213, y: 1.0000)],
     ],
     "5": [
-        [CGPoint(x: 0.8152, y: 0.0000), CGPoint(x: 0.0243, y: 0.0000), CGPoint(x: 0.0243, y: 0.4202)],
-        [CGPoint(x: 0.0426, y: 0.5561), CGPoint(x: 0.0085, y: 0.6350), CGPoint(x: 0.0000, y: 0.7196), CGPoint(x: 0.0178, y: 0.8030), CGPoint(x: 0.0606, y: 0.8782), CGPoint(x: 0.1246, y: 0.9392), CGPoint(x: 0.2048, y: 0.9810), CGPoint(x: 0.2945, y: 1.0000), CGPoint(x: 0.3864, y: 0.9948), CGPoint(x: 0.4729, y: 0.9657), CGPoint(x: 0.5469, y: 0.9152), CGPoint(x: 0.6024, y: 0.8474), CGPoint(x: 0.6348, y: 0.7679), CGPoint(x: 0.6414, y: 0.6831), CGPoint(x: 0.6217, y: 0.6001), CGPoint(x: 0.5773, y: 0.5257), CGPoint(x: 0.5119, y: 0.4659), CGPoint(x: 0.4308, y: 0.4257)],
+        [CGPoint(x: 0.9543, y: 0.0000), CGPoint(x: 0.0266, y: 0.0000)],
+        [CGPoint(x: 0.0266, y: 0.0000), CGPoint(x: 0.0266, y: 0.4928), CGPoint(x: 0.0000, y: 0.5808), CGPoint(x: 0.0005, y: 0.6696), CGPoint(x: 0.0625, y: 0.8347), CGPoint(x: 0.1928, y: 0.9535), CGPoint(x: 0.3629, y: 1.0000), CGPoint(x: 0.4513, y: 0.9923), CGPoint(x: 0.6108, y: 0.9169), CGPoint(x: 0.7185, y: 0.7773), CGPoint(x: 0.7449, y: 0.6926), CGPoint(x: 0.7509, y: 0.6040), CGPoint(x: 0.7009, y: 0.4349)],
     ],
     "6": [
         [CGPoint(x: 0.3656, y: 0.0000), CGPoint(x: 0.2745, y: 0.0522), CGPoint(x: 0.2062, y: 0.1319), CGPoint(x: 0.1687, y: 0.2299), CGPoint(x: 0.1733, y: 0.3693), CGPoint(x: 0.5486, y: 0.6507), CGPoint(x: 0.5657, y: 0.7350), CGPoint(x: 0.5520, y: 0.8199), CGPoint(x: 0.5089, y: 0.8962), CGPoint(x: 0.4412, y: 0.9554), CGPoint(x: 0.3562, y: 0.9913), CGPoint(x: 0.2631, y: 1.0000), CGPoint(x: 0.1719, y: 0.9805), CGPoint(x: 0.0926, y: 0.9349), CGPoint(x: 0.0337, y: 0.8681), CGPoint(x: 0.0017, y: 0.7875), CGPoint(x: 0.0000, y: 0.7017), CGPoint(x: 0.0288, y: 0.6200), CGPoint(x: 0.0849, y: 0.5513), CGPoint(x: 0.1623, y: 0.5031), CGPoint(x: 0.2527, y: 0.4805), CGPoint(x: 0.3461, y: 0.4860), CGPoint(x: 0.4325, y: 0.5190), CGPoint(x: 0.5025, y: 0.5760), CGPoint(x: 0.5486, y: 0.6507)],

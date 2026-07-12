@@ -591,12 +591,12 @@ private final class TutorPointer {
 
     init() {
         // Minimalist triangle cursor (Hugh, 2026-07-12: "more triangle,
-        // minimalist" — was a blue pointing hand). location.north.fill is a
-        // clean filled triangle; near-black, subtle shadow, smaller.
+        // minimalist"). location.north.fill is a clean filled triangle;
+        // blue to match the tutor's ink, subtle shadow, smaller.
         let config = UIImage.SymbolConfiguration(pointSize: 16, weight: .semibold)
         let image = UIImage(systemName: "location.north.fill", withConfiguration: config)
         imageView = UIImageView(image: image)
-        imageView.tintColor = UIColor.black.withAlphaComponent(0.85)
+        imageView.tintColor = UIColor.systemBlue.withAlphaComponent(0.85)
         imageView.sizeToFit()
         imageView.layer.shadowColor = UIColor.black.cgColor
         imageView.layer.shadowOpacity = 0.2
@@ -867,7 +867,7 @@ final class AnnotationOverlayView: UIView {
         let shapeLayer = CAShapeLayer()
         shapeLayer.path = path
         shapeLayer.fillColor = UIColor.clear.cgColor
-        shapeLayer.strokeColor = UIColor.black.cgColor
+        shapeLayer.strokeColor = UIColor.systemBlue.cgColor
         shapeLayer.lineWidth = 3
         shapeLayer.lineCap = .round
         shapeLayer.lineJoin = .round
@@ -900,7 +900,7 @@ final class AnnotationOverlayView: UIView {
         textLayer.string = text
         textLayer.font = font.fontName as CFTypeRef
         textLayer.fontSize = font.pointSize
-        textLayer.foregroundColor = UIColor.black.cgColor
+        textLayer.foregroundColor = UIColor.systemBlue.cgColor
         textLayer.alignmentMode = .center
         textLayer.contentsScale = UIScreen.main.scale
         textLayer.frame = CGRect(x: centroid.x - size.width / 2, y: centroid.y - size.height / 2, width: size.width, height: size.height)

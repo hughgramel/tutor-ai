@@ -383,11 +383,19 @@ enum TutorWriterLayout {
                 walk(sub, parentOrigin: absoluteOrigin, into: &result)
             }
         } else if let fraction = display as? MTFractionDisplay {
+            // Emission order is numerator, bar, denominator — not just a
+            // list order, but the writing order a human pen would use (this
+            // is what CAShapeLayer strokeEnd animation reveals over time):
+            // write the numerator, draw the bar under it, then write the
+            // denominator. Confirmed against `MTFractionDisplay.draw`
+            // (MTMathListDisplay.swift:360-380): the bar's geometry
+            // (`self.position` + `linePosition`/`lineThickness`) is
+            // independent of numerator/denominator draw order there, so
+            // reordering the synthetic "fracbar" append here to sit between
+            // the two recursive `walk` calls only changes writing order,
+            // not geometry.
             if let numerator = fraction.numerator {
                 walk(numerator, parentOrigin: parentOrigin, into: &result)
-            }
-            if let denominator = fraction.denominator {
-                walk(denominator, parentOrigin: parentOrigin, into: &result)
             }
             let linePosition = mirrorChild(of: fraction, label: "linePosition", as: CGFloat.self) ?? 0
             let lineThickness = mirrorChild(of: fraction, label: "lineThickness", as: CGFloat.self) ?? 0
@@ -396,6 +404,9 @@ enum TutorWriterLayout {
                 x: absoluteOrigin.x, y: barY - lineThickness / 2,
                 width: fraction.width, height: lineThickness
             )))
+            if let denominator = fraction.denominator {
+                walk(denominator, parentOrigin: parentOrigin, into: &result)
+            }
         } else if typeName == "MTRadicalDisplay" {
             guard let radicand = mirrorChild(of: display, label: "radicand", as: MTMathListDisplay.self),
                   let radicandPosition = position(of: radicand) else { return }
@@ -612,7 +623,7 @@ final class TutorWriter: UIView {
 
         let shapeLayer = CAShapeLayer()
         shapeLayer.path = path
-        shapeLayer.strokeColor = UIColor.black.cgColor
+        shapeLayer.strokeColor = UIColor.systemBlue.cgColor
         shapeLayer.fillColor = UIColor.clear.cgColor
         shapeLayer.lineWidth = 3
         shapeLayer.lineCap = .round
@@ -659,7 +670,7 @@ final class TutorWriter: UIView {
         // PostScript name is the documented, reliable way in.
         textLayer.font = font.fontName as CFTypeRef
         textLayer.fontSize = frame.height
-        textLayer.foregroundColor = UIColor.black.cgColor
+        textLayer.foregroundColor = UIColor.systemBlue.cgColor
         textLayer.alignmentMode = .center
         textLayer.contentsScale = UIScreen.main.scale
         let jitterDegrees = CGFloat.random(in: -2...2)

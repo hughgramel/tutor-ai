@@ -157,11 +157,25 @@ def hand_authored_strokes(symbol):
             line((63, 2), (63, 96)),
         ]
     if symbol == "5":
-        # top flag (horizontal + short vertical down the left) then a
-        # bottom curve (open "C", like the bottom of a 3 mirrored).
-        flag = line((78, 8), (14, 8)) + line((14, 8), (14, 42))[1:]
-        curve = arc(38, 65, 26, 24, 210, -70, n=18)
-        return [flag, curve]
+        # TWO separate strokes (pen lift between them), not one continuous
+        # path — load-bearing, not stylistic. `TutorWriter.smoothedPath`
+        # (ios/InkTutor/TutorWriter.swift) draws every stroke as a
+        # quadratic curve through each point using it as a control point,
+        # which ROUNDS sharp corners; a single flag+stem+bowl stroke (the
+        # first attempt) got its 90-degree bar/stem corner smoothed into a
+        # curl, which combined with the bowl read as "6", not "5" —
+        # confirmed by rendering both in the app and by replicating
+        # `smoothedPath` in a standalone script. Splitting the flat top bar
+        # into its own 2-point stroke keeps it a straight, unsmoothed line
+        # (smoothedPath draws 2-point strokes as a plain line, no curve);
+        # the second stroke (vertical stem into an open bowl, sweeping 230
+        # degrees from 200 to -30 — well short of a full loop, so the belly
+        # stays visibly open like the bottom of a mirrored "3") starts
+        # exactly at the bar's left end, so there's no gap between bar and
+        # stem despite the pen lift.
+        bar = line((78, 8), (14, 8))
+        stem_bowl = line((14, 8), (14, 42)) + arc(38, 51, 26, 26, 200, -30, n=18)
+        return [bar, stem_bowl]
     if symbol == "6":
         # hook down the left side into a loop at the bottom.
         hook = arc(58, 30, 26, 26, 250, 165, n=14)
