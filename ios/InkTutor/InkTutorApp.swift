@@ -4,7 +4,7 @@ import SwiftUI
 struct InkTutorApp: App {
     var body: some Scene {
         WindowGroup {
-            CanvasView()
+            CanvasScreen()
                 .ignoresSafeArea()
         }
     }

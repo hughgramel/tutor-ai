@@ -12,6 +12,8 @@
  *   POST /realtime-token → OpenAI /v1/realtime/client_secrets
  */
 
+import { INSTRUCTIONS } from "./instructions";
+
 interface Env {
   OPENAI_API_KEY: string;
 }
@@ -51,6 +53,7 @@ async function mintRealtimeToken(env: Env): Promise<Response> {
       session: {
         type: "realtime",
         model: "gpt-realtime-2.1",
+        instructions: INSTRUCTIONS,
         audio: { output: { voice: "marin" } },
       },
     }),

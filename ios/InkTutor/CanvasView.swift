@@ -1,24 +1,114 @@
 import SwiftUI
 import PencilKit
 
-/// Full-screen PencilKit canvas with the system tool picker.
-/// This is the spike: prove Apple Pencil ink works on-device. Nothing else.
-struct CanvasView: UIViewRepresentable {
-    func makeUIView(context: Context) -> PKCanvasView {
-        let canvas = PKCanvasView()
-        canvas.drawingPolicy = .anyInput   // finger too, so it works in the simulator
-        canvas.backgroundColor = .systemBackground
+/// One page's PencilKit canvas: white paper, optional PDF underlay, native
+/// pinch-zoom (PKCanvasView IS a UIScrollView, no wrapper needed), tool
+/// picker. Used for both the student page and the tutor popup page.
+///
+/// The PDF underlay is a sibling view *outside* the scroll view's own
+/// content, manually kept in sync with the canvas's contentOffset/zoomScale
+/// via UIScrollViewDelegate callbacks — this is the pattern Apple's own
+/// PencilKit sample uses for backgrounds, and it's what lets an
+/// AnnotationOverlayView (Task 9) track ink at any zoom level too.
+struct PageCanvasRepresentable: UIViewRepresentable {
+    @ObservedObject var page: PageModel
+    let pageSize: CGSize
 
-        let picker = PKToolPicker()
-        picker.setVisible(true, forFirstResponder: canvas)
-        picker.addObserver(canvas)
-        canvas.becomeFirstResponder()
-        context.coordinator.picker = picker  // retain it
-        return canvas
+    static var drawingPolicy: PKCanvasViewDrawingPolicy {
+        #if targetEnvironment(simulator)
+        // Apple Pencil doesn't exist in the simulator; allow finger/mouse input so this is testable.
+        return .anyInput
+        #else
+        return .pencilOnly
+        #endif
     }
 
-    func updateUIView(_ uiView: PKCanvasView, context: Context) {}
+    func makeUIView(context: Context) -> UIView {
+        let container = UIView()
+        container.backgroundColor = .systemGray4 // area outside the page, off-canvas
+        container.overrideUserInterfaceStyle = .light
+
+        // White paper + PDF image live together as one sibling "underlay" view,
+        // resized/repositioned to mirror the canvas's scroll/zoom.
+        let paperView = UIView()
+        paperView.backgroundColor = .white
+        paperView.frame = CGRect(origin: .zero, size: pageSize)
+        container.addSubview(paperView)
+
+        let pdfImageView = UIImageView(image: page.pdfImage)
+        pdfImageView.contentMode = .scaleToFill
+        pdfImageView.frame = paperView.bounds
+        pdfImageView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        paperView.addSubview(pdfImageView)
+
+        let canvasView = PKCanvasView()
+        canvasView.overrideUserInterfaceStyle = .light
+        canvasView.drawingPolicy = Self.drawingPolicy
+        canvasView.backgroundColor = .clear // paper shows through from the sibling underlay
+        canvasView.minimumZoomScale = 0.5
+        canvasView.maximumZoomScale = 4.0
+        canvasView.contentSize = pageSize
+        // Default tool BEFORE the tool picker attaches.
+        canvasView.tool = PKInkingTool(.pen, color: .black, width: 3)
+        canvasView.drawing = page.drawing
+        canvasView.delegate = context.coordinator // also receives UIScrollViewDelegate callbacks
+        canvasView.frame = container.bounds
+        canvasView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        container.addSubview(canvasView)
+
+        let picker = PKToolPicker()
+        picker.setVisible(true, forFirstResponder: canvasView)
+        picker.addObserver(canvasView)
+        canvasView.becomeFirstResponder()
+
+        context.coordinator.page = page
+        context.coordinator.paperView = paperView
+        context.coordinator.pdfImageView = pdfImageView
+        context.coordinator.canvasView = canvasView
+        context.coordinator.picker = picker
+        context.coordinator.pageSize = pageSize
+        context.coordinator.syncUnderlay()
+
+        return container
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        // The canvas is the sole writer of `page.drawing` (see Coordinator);
+        // programmatic writes from the tutor land in Task 11 and will need a
+        // guarded sync here. The PDF image can arrive after makeUIView runs
+        // (async PDFKit render), so keep that one live.
+        if context.coordinator.pdfImageView?.image !== page.pdfImage {
+            context.coordinator.pdfImageView?.image = page.pdfImage
+        }
+    }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
-    final class Coordinator { var picker: PKToolPicker? }
+
+    final class Coordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate {
+        weak var page: PageModel?
+        weak var paperView: UIView?
+        weak var pdfImageView: UIImageView?
+        weak var canvasView: PKCanvasView?
+        var picker: PKToolPicker? // retain
+        var pageSize: CGSize = .zero
+
+        func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
+            page?.drawing = canvasView.drawing
+        }
+
+        func scrollViewDidScroll(_ scrollView: UIScrollView) { syncUnderlay() }
+        func scrollViewDidZoom(_ scrollView: UIScrollView) { syncUnderlay() }
+
+        func syncUnderlay() {
+            guard let canvasView, let paperView else { return }
+            let zoom = canvasView.zoomScale
+            let offset = canvasView.contentOffset
+            paperView.frame = CGRect(
+                x: -offset.x,
+                y: -offset.y,
+                width: pageSize.width * zoom,
+                height: pageSize.height * zoom
+            )
+        }
+    }
 }

@@ -7,9 +7,19 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		05A01214619121DDFC3D9775 /* TutorSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FD8EE9DD8ABC6D38EAAB09A /* TutorSession.swift */; };
+		38F9BE32A659E49F85211289 /* CanvasScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D8A2F6E513737A88D93FB9C /* CanvasScreen.swift */; };
 		433E67C39E7330CA330EE7BA /* PlaceholderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 657295A3C4B7C4D0ED19F627 /* PlaceholderTests.swift */; };
+		5D679BEBDAA0C3EDF4679DB4 /* Snapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D5BC5008BAB4F838B9A10E5 /* Snapshot.swift */; };
+		762A1C26DDFA516824068412 /* assignment.pdf in Resources */ = {isa = PBXBuildFile; fileRef = 637A7394525D3B9DF4BF8288 /* assignment.pdf */; };
+		7B3EA07447AA52C8843000B8 /* PageModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 483F622626E09F2F5B1CBB50 /* PageModel.swift */; };
+		8BD13F3D6FAD1AA3F7403A9E /* WebRTC in Frameworks */ = {isa = PBXBuildFile; productRef = 3B3516D40872201B9DB26222 /* WebRTC */; };
+		A9CACA6730C593CDAF601E24 /* worksheet-equations-word-problems.pdf in Resources */ = {isa = PBXBuildFile; fileRef = E2ADF9C29B4AADB88A787555 /* worksheet-equations-word-problems.pdf */; };
+		AF7EED1F8A85198477B4C374 /* RealtimeSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6266234957DDEE9D4EE9D5AE /* RealtimeSession.swift */; };
+		C0E1CB681561D37327B4C697 /* Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEE3EC710F28F03357F0DAF8 /* Config.swift */; };
 		C3F4AA3418C6E95AB58D2D6B /* CanvasView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81A1161D5201C918F39AABDC /* CanvasView.swift */; };
 		CD07A64BF354BE16EE9A9FAB /* InkTutorApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 173B6CA5575873348E765E1E /* InkTutorApp.swift */; };
+		DEC87AD64D75BC4AF4C3C9C6 /* SnapshotTransformTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50BCDD75EB177C5B15EAA3B5 /* SnapshotTransformTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -23,19 +33,55 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		0FD8EE9DD8ABC6D38EAAB09A /* TutorSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TutorSession.swift; sourceTree = "<group>"; };
 		173B6CA5575873348E765E1E /* InkTutorApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InkTutorApp.swift; sourceTree = "<group>"; };
+		483F622626E09F2F5B1CBB50 /* PageModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PageModel.swift; sourceTree = "<group>"; };
+		4D5BC5008BAB4F838B9A10E5 /* Snapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Snapshot.swift; sourceTree = "<group>"; };
+		4D8A2F6E513737A88D93FB9C /* CanvasScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanvasScreen.swift; sourceTree = "<group>"; };
+		50BCDD75EB177C5B15EAA3B5 /* SnapshotTransformTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapshotTransformTests.swift; sourceTree = "<group>"; };
+		6266234957DDEE9D4EE9D5AE /* RealtimeSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RealtimeSession.swift; sourceTree = "<group>"; };
+		637A7394525D3B9DF4BF8288 /* assignment.pdf */ = {isa = PBXFileReference; lastKnownFileType = image.pdf; path = assignment.pdf; sourceTree = "<group>"; };
 		657295A3C4B7C4D0ED19F627 /* PlaceholderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaceholderTests.swift; sourceTree = "<group>"; };
 		81A1161D5201C918F39AABDC /* CanvasView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanvasView.swift; sourceTree = "<group>"; };
 		BA868DA7B0C07E34149845E2 /* InkTutor.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = InkTutor.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		BEE3EC710F28F03357F0DAF8 /* Config.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Config.swift; sourceTree = "<group>"; };
+		E2ADF9C29B4AADB88A787555 /* worksheet-equations-word-problems.pdf */ = {isa = PBXFileReference; lastKnownFileType = image.pdf; path = "worksheet-equations-word-problems.pdf"; sourceTree = "<group>"; };
 		F7B5C3F12C01BFE47F2C00E9 /* InkTutorTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = InkTutorTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFrameworksBuildPhase section */
+		E4EA74749928FF16DCAA4ECE /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8BD13F3D6FAD1AA3F7403A9E /* WebRTC in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
 /* Begin PBXGroup section */
+		1EA77254019FE876FC4DC37B /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				637A7394525D3B9DF4BF8288 /* assignment.pdf */,
+				E2ADF9C29B4AADB88A787555 /* worksheet-equations-word-problems.pdf */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
 		69050CA608CB87B43A3480F2 /* InkTutor */ = {
 			isa = PBXGroup;
 			children = (
+				4D8A2F6E513737A88D93FB9C /* CanvasScreen.swift */,
 				81A1161D5201C918F39AABDC /* CanvasView.swift */,
+				BEE3EC710F28F03357F0DAF8 /* Config.swift */,
 				173B6CA5575873348E765E1E /* InkTutorApp.swift */,
+				483F622626E09F2F5B1CBB50 /* PageModel.swift */,
+				6266234957DDEE9D4EE9D5AE /* RealtimeSession.swift */,
+				4D5BC5008BAB4F838B9A10E5 /* Snapshot.swift */,
+				0FD8EE9DD8ABC6D38EAAB09A /* TutorSession.swift */,
+				1EA77254019FE876FC4DC37B /* Resources */,
 			);
 			path = InkTutor;
 			sourceTree = "<group>";
@@ -44,6 +90,7 @@
 			isa = PBXGroup;
 			children = (
 				657295A3C4B7C4D0ED19F627 /* PlaceholderTests.swift */,
+				50BCDD75EB177C5B15EAA3B5 /* SnapshotTransformTests.swift */,
 			);
 			path = InkTutorTests;
 			sourceTree = "<group>";
@@ -74,6 +121,8 @@
 			buildConfigurationList = BA84B54C58F74F67A2A08BE6 /* Build configuration list for PBXNativeTarget "InkTutor" */;
 			buildPhases = (
 				C7CF2D181550F753E366FB80 /* Sources */,
+				D0D70021B377E2843350C33E /* Resources */,
+				E4EA74749928FF16DCAA4ECE /* Frameworks */,
 			);
 			buildRules = (
 			);
@@ -81,6 +130,7 @@
 			);
 			name = InkTutor;
 			packageProductDependencies = (
+				3B3516D40872201B9DB26222 /* WebRTC */,
 			);
 			productName = InkTutor;
 			productReference = BA868DA7B0C07E34149845E2 /* InkTutor.app */;
@@ -127,6 +177,9 @@
 			);
 			mainGroup = 950474E076187D3E4665C432;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				F0DDA7AF2BA84D26657EAFBF /* XCRemoteSwiftPackageReference "WebRTC" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = FA0B4F9C06BA12D858587F07 /* Products */;
 			projectDirPath = "";
@@ -138,12 +191,25 @@
 		};
 /* End PBXProject section */
 
+/* Begin PBXResourcesBuildPhase section */
+		D0D70021B377E2843350C33E /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				762A1C26DDFA516824068412 /* assignment.pdf in Resources */,
+				A9CACA6730C593CDAF601E24 /* worksheet-equations-word-problems.pdf in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		714A272C286EBFEA59743FBD /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 				433E67C39E7330CA330EE7BA /* PlaceholderTests.swift in Sources */,
+				DEC87AD64D75BC4AF4C3C9C6 /* SnapshotTransformTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -151,8 +217,14 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				38F9BE32A659E49F85211289 /* CanvasScreen.swift in Sources */,
 				C3F4AA3418C6E95AB58D2D6B /* CanvasView.swift in Sources */,
+				C0E1CB681561D37327B4C697 /* Config.swift in Sources */,
 				CD07A64BF354BE16EE9A9FAB /* InkTutorApp.swift in Sources */,
+				7B3EA07447AA52C8843000B8 /* PageModel.swift in Sources */,
+				AF7EED1F8A85198477B4C374 /* RealtimeSession.swift in Sources */,
+				5D679BEBDAA0C3EDF4679DB4 /* Snapshot.swift in Sources */,
+				05A01214619121DDFC3D9775 /* TutorSession.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -171,6 +243,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -263,6 +336,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -389,6 +463,25 @@
 			defaultConfigurationName = Debug;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		F0DDA7AF2BA84D26657EAFBF /* XCRemoteSwiftPackageReference "WebRTC" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/stasel/WebRTC.git";
+			requirement = {
+				kind = exactVersion;
+				version = 150.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		3B3516D40872201B9DB26222 /* WebRTC */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F0DDA7AF2BA84D26657EAFBF /* XCRemoteSwiftPackageReference "WebRTC" */;
+			productName = WebRTC;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 38F184FC177180796963A9F2 /* Project object */;
 }

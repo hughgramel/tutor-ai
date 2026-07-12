@@ -3,11 +3,17 @@ options:
   bundleIdPrefix: com.tutorai
   deploymentTarget:
     iOS: "17.0"
+packages:
+  WebRTC:
+    url: https://github.com/stasel/WebRTC.git
+    exactVersion: 150.0.0
 targets:
   InkTutor:
     type: application
     platform: iOS
     sources: [InkTutor]
+    dependencies:
+      - package: WebRTC
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.tutorai.inktutor
@@ -22,6 +28,9 @@ targets:
     type: bundle.unit-test
     platform: iOS
     sources: [InkTutorTests]
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES   # canvas agent: plain `xcodebuild test` fails at codesign without this
     dependencies:
       - target: InkTutor
 schemes:
