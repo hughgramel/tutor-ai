@@ -31,6 +31,8 @@ canvas snapshot understood + transcript deltas arriving. Pick whichever passes; 
 
 - [ ] Tutor sees the student's ink as they write (snapshot on stroke-end, debounced, pushed proactively — no tool-call stall)
 - [ ] Tutor **circles / underlines / arrows** a specific spot on the student's page, mid-sentence
+- [ ] **Pointer "finger"** (Hugh, 2026-07-13): small minimalist pointer icon flies to the spot first — like HeyClicky's cursor, a tutor's finger — so you always see *where* it's about to act
+- [ ] **Annotations are performed, not displayed**: circle/underline/highlight *draws itself in* with hand wobble (pointer riding the pen tip), holds a few seconds, **fades out** — ephemeral, human-feel. This is the wow moment; anything that blinks in is a bug
 - [ ] Marks land on the right spot (client does geometry from mark ID — model never emits coordinates)
 - [ ] Annotate-only on the student's page; **nothing can erase student ink**
 
@@ -54,7 +56,7 @@ One person, a few hours, Friday night.
 
 ## F3 — The tutor's own page: handwritten worked example
 
-- [ ] Tutor opens its own page (`[NEWPAGE]`) — never writes on the student's
+- [ ] Tutor opens its own page as a **popup sheet over a dimmed scrim** (`[NEWPAGE]`) — student's work stays visible underneath, closeable anytime (Hugh, 2026-07-13: don't pull the student away). Never writes on the student's page. (Infinite-canvas-pan-right considered, rejected: breaks F5's fixed-page assumption for a weekend build)
 - [ ] Writes a worked quadratic **in handwriting, stroke by stroke, animated**, synced with narration
 - [ ] Math looks right: fractions, √, ², ± laid out correctly
 - [ ] Student can ask about any part of it and get a real answer (concept questions are fair game on the tutor's page)
@@ -78,9 +80,9 @@ it and saying "that reads as handwriting," not a metric.
 - [ ] Paper-like page, Apple Pencil ink that feels right (PKCanvasView + PKToolPicker — free; variable stroke width comes from PKInk `.pen` + pencil force, built in)
 - [ ] **Pinch zoom in/out — essential** (PKCanvasView inside its own UIScrollView zoom; marks/overlays must track zoom)
 - [ ] PDF worksheet underlay (PDFKit page rendered behind the canvas; snapshot to AI composites PDF + ink)
-- [ ] Page flip / at least 2 pages (student's, tutor's)
-- [ ] AI button bottom-right (exyte/FloatingButton, MIT, maintained)
-- [ ] Subtitles box bottom-right above the button: tutor's words stream in, scroll up (hand-rolled, ~50–80 lines: `ScrollViewReader` + transcript deltas)
+- [ ] 2 pages: student's (main) + tutor's popup sheet (see F3 — no page flip)
+- [ ] **AI bar bottom-right, Gemini-style** (Hugh, 2026-07-12): rounded pill with icon; tap voice mode → realtime connects and the pill shrinks/animates right into a compact circle; pulsing while speaking; tap to expand back (custom SwiftUI `matchedGeometryEffect`, ~80 lines — FloatingButton dep dropped, can't do the morph)
+- [ ] Subtitles box bottom-right above the bar: tutor's words stream in, scroll up (hand-rolled, ~50–80 lines: `ScrollViewReader` + transcript deltas)
 - [ ] Dark-mode trap handled: force `.light` + explicit ink color or snapshots go blank
 
 **Research verdict on cloning:** nothing clone-ready exists. The only real open-source
@@ -133,6 +135,10 @@ HeyClicky** added on top: **two-way ink pointing** —
 
 Nobody has shown mutual ink-to-ink reference (Clicky points at your screen; you can't
 point back). Both directions ride machinery we're building anyway (F2 + F4b).
+
+**And the delivery is the moment** (Hugh, 2026-07-13): the pointer flies over like a
+finger, the circle draws itself with a hand's wobble, holds, fades. "Feels like a person"
+is the acceptance test — the tags landing on the right ink is table stakes.
 
 ## F5 — The representation (the "DOM")
 

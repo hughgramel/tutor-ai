@@ -14,7 +14,8 @@
 - **Canvas space everywhere.** All marks, annotations, gestures, glyph placements are in page points (page size 768×1024 pt, origin top-left). Screenshot pixels exist only inside `Snapshot` (which carries `canvasRect` + `scale`). Never store an image-space coordinate.
 - **The model never emits coordinates for existing content.** Mark IDs only (`[CIRCLE:7]`). Client does geometry.
 - **Page rules enforced in client code, not prompt:** student page = annotate-only (`CIRCLE/UNDERLINE/ARROW/HIGHLIGHT`); tutor page = those plus `WRITE`; **no erase tag exists anywhere**.
-- **Dependencies:** exactly three SPM packages — `stasel/WebRTC`, `mgriebling/SwiftMath`, `exyte/FloatingButton`. Anything else is hand-rolled.
+- **Dependencies:** exactly two SPM packages — `stasel/WebRTC`, `mgriebling/SwiftMath`. Anything else is hand-rolled (the AI bar is custom SwiftUI — `exyte/FloatingButton` dropped 2026-07-13, it can't do the pill-morph).
+- **The tutor is a presence, not a page.** Its worked example lives in a popup sheet over a dimmed scrim (student's work stays visible, closeable anytime — Hugh, 2026-07-13). Its visual actions are performed by a pointer that flies to the spot first, then draws — annotations draw themselves in with hand wobble and fade back out. Human-feel is the wow moment; any annotation that just appears is a bug.
 - **No beta APIs.** Target iPadOS 18. No iOS 27 parametric substroke.
 - **Snapshot discipline:** max dimension 1280 px, JPEG 0.8 (Clicky's numbers), rendered with `overrideUserInterfaceStyle = .light`, on-demand only (never in a loop).
 - **One long-lived URLSession** for any REST call (Clicky's socket-corruption warning).
@@ -207,7 +208,7 @@ func testSnapshotTransformRoundTrip() {
 ```
 
 - [ ] **Step 2:** `Snapshot.toImage(p) = ((p.x - canvasRect.minX) * scale, (p.y - canvasRect.minY) * scale)`; inverse for `toCanvas`. Snapshot renderer: `UIGraphicsImageRenderer` at page size × scale → draw white, PDF image if any, then `drawing.image(from: canvasRect, scale: scale)`, then labels (Task 5). JPEG 0.8, long side 1280.
-- [ ] **Step 3:** `CanvasScreen`: **`PKCanvasView` is itself a `UIScrollView` subclass — use its native zoom, no wrapper.** Set `canvasView.minimumZoomScale = 0.5`, `maximumZoomScale = 4.0`, `contentSize = pageSize`, transparent background, `overrideUserInterfaceStyle = .light` (**app is light-mode-only — lock it in Info.plist `UIUserInterfaceStyle = Light`, white paper background**), `drawingPolicy = .pencilOnly`, and default tool **black `.pen`, width 3** (`canvasView.tool = PKInkingTool(.pen, color: .black, width: 3)` before the tool picker attaches). PDF underlay + `AnnotationOverlayView` (Task 9) are sibling views synced to the canvas via its `UIScrollViewDelegate` callbacks (`scrollViewDidScroll/DidZoom` → apply the same `contentOffset` + `zoomScale` transform) — both live in page coordinates, so annotations track ink at any zoom (Apple's own PencilKit sample uses this pattern for backgrounds). `PKToolPicker` attached. Two `PageModel`s, student/tutor, horizontal page flip. PDF underlay: `PDFDocument(url:).page(at: 0)!.thumbnail(of: pageSize*2, for: .mediaBox)`.
+- [ ] **Step 3:** `CanvasScreen`: **`PKCanvasView` is itself a `UIScrollView` subclass — use its native zoom, no wrapper.** Set `canvasView.minimumZoomScale = 0.5`, `maximumZoomScale = 4.0`, `contentSize = pageSize`, transparent background, `overrideUserInterfaceStyle = .light` (**app is light-mode-only — lock it in Info.plist `UIUserInterfaceStyle = Light`, white paper background**), `drawingPolicy = .pencilOnly`, and default tool **black `.pen`, width 3** (`canvasView.tool = PKInkingTool(.pen, color: .black, width: 3)` before the tool picker attaches). PDF underlay + `AnnotationOverlayView` (Task 9) are sibling views synced to the canvas via its `UIScrollViewDelegate` callbacks (`scrollViewDidScroll/DidZoom` → apply the same `contentOffset` + `zoomScale` transform) — both live in page coordinates, so annotations track ink at any zoom (Apple's own PencilKit sample uses this pattern for backgrounds). `PKToolPicker` attached. Two `PageModel`s, student/tutor — **tutor page is a popup sheet, not a page flip** (Hugh, 2026-07-13: don't take the student away from their work): `[NEWPAGE]` presents a centered card (~85% width/height, own `PKCanvasView` + own `AnnotationOverlayView`, same zoom setup) over a dimmed scrim (~0.35 black); student page stays visible underneath; close button top-right + tap-scrim dismisses anytime; dismissal keeps the `PageModel` (drawing survives, reopening restores it) and pushes a `tutorPageClosed` journal event so the model knows it's no longer visible. PDF underlay: `PDFDocument(url:).page(at: 0)!.thumbnail(of: pageSize*2, for: .mediaBox)` (student page only).
 - [ ] **Step 4:** Run tests + on device: draw with pencil (variable width comes from `.pen` ink + force — free), pinch zoom, flip pages, worksheet PDF visible under ink.
 - [ ] **Step 5: Commit.**
 
@@ -266,7 +267,7 @@ gesture. Everything below is kept for that stretch case; skip to Task 7, and dro
 - Test: `ios/InkTutorTests/EventJournalTests.swift`
 
 **Interfaces:**
-- Produces: `EventJournal.append(_ event: JournalEvent)` where `JournalEvent` is a `Codable` enum: `.userWrote(page:markIds:)`, `.userPageTurned(page:)`, `.userIdle(seconds:)`, `.problemLoaded(id:latex:)`, `.tutorRendered(tag:markIds:)`; `replayText(last: Int) -> String` (compact JSON-lines, cap 50) for session rebuild. (`.userReferenced` cut with Task 6 — student gestures reach the model as ink in the next snapshot.)
+- Produces: `EventJournal.append(_ event: JournalEvent)` where `JournalEvent` is a `Codable` enum: `.userWrote(page:markIds:)`, `.tutorPageOpened`, `.tutorPageClosed` (popup sheet presented/dismissed — the model must know its page is no longer visible), `.userIdle(seconds:)`, `.problemLoaded(id:latex:)`, `.tutorRendered(tag:markIds:)`; `replayText(last: Int) -> String` (compact JSON-lines, cap 50) for session rebuild. (`.userReferenced` cut with Task 6 — student gestures reach the model as ink in the next snapshot.)
 - `TutorController` owns: stroke-end debounce (**800 ms**) → recompute registry → snapshot → `session.pushImage` + `session.pushEvent(registryJSON)`; idle timer (no strokes 8s while tutor waiting → `.userIdle`).
 - **Image-context budget (Hugh, 2026-07-12: don't scale, but don't drown either):** min 3s between snapshot pushes regardless of debounce; skip the push when the drawing hash is unchanged; track pushed image item IDs and `conversation.item.delete` all but the 2 most recent before pushing a new one (the registry text items stay — cheap, and they preserve the paper trail). Demo sessions are ~10 min; this keeps image tokens bounded without any real context engineering.
 
@@ -312,20 +313,23 @@ func testUnknownTagDropped() {  // model invents [ERASE:3] → stripped from sub
 
 ---
 
-### Task 9: Annotation renderer + page-rule enforcement
+### Task 9: Pointer + annotation renderer + page-rule enforcement (the human-feel task)
+
+**This is the wow moment** (Hugh, 2026-07-13): it must feel like a person — a pointer flies to the spot like a tutor's finger, the circle *draws itself* with hand wobble, then fades away. Nothing blinks in, nothing is permanent. **Clicky-first: read `reference/clicky/OverlayWindow.swift` before writing a line** — the flight timings below are ported from it.
 
 **Files:**
-- Create: `ios/InkTutor/AnnotationOverlayView.swift`, `ios/InkTutor/RoughGeometry.swift`
+- Create: `ios/InkTutor/AnnotationOverlayView.swift`, `ios/InkTutor/RoughGeometry.swift`, `ios/InkTutor/TutorPointer.swift`
 - Test: `ios/InkTutorTests/RoughGeometryTests.swift` (perturbed ellipse stays within 15% of ideal radius; polygon closes)
 
 **Interfaces:**
 - Consumes: `TutorTag` + `MarkRegistry` lookup + current page role.
-- Produces: `AnnotationOverlayView.render(_ tag: TutorTag, on page: PageModel)`. Enforcement: `write`/`plot`/`shape` on student page → **dropped + logged** (`assertionFailure` in debug). Nothing ever mutates `drawing.strokes` of the student page.
+- Produces: `AnnotationOverlayView.perform(_ tag: TutorTag, on page: PageModel) async` — full sequence: pointer flight → draw-in → hold → fade. Enforcement: `write`/`plot`/`shape` on student page → **dropped + logged** (`assertionFailure` in debug). Nothing ever mutates `drawing.strokes` of the student page.
 
-- [ ] **Step 1:** `RoughGeometry.ellipse(around: CGRect) -> CGPath` — ellipse inflated 10pt, 4 control points jittered ±6%, closed Catmull-Rom → hand-drawn wobble; `arrow(from: CGRect, to: CGRect)`, `underlinePath`, `highlightRect` (rounded, 40% alpha yellow fill).
-- [ ] **Step 2:** Render each as `CAShapeLayer` in canvas coordinates on the overlay (zoom-safe per Task 4), animate `strokeEnd` 0→1 over `0.4s` (Clicky feel: draw-in, don't blink-in). `tutorRendered` journal event after each.
-- [ ] **Step 3:** `[WAIT:n]`: TutorController suppresses any client-triggered `response.create` for n seconds and shows a subtle "…" in the subtitle box.
-- [ ] **Step 4:** Tests + on-device: fake a transcript `"look [CIRCLE:2] here"` → wobbled ellipse draws around mark 2 while zoomed to 2.5×, lands on the ink. **Step 5: Commit.**
+- [ ] **Step 1:** `RoughGeometry.ellipse(around: CGRect) -> CGPath` — ellipse inflated 10pt, 4 control points jittered ±6%, closed Catmull-Rom → hand-drawn wobble; `arrow(from: CGRect, to: CGRect)`, `underlinePath` (slight downward sag + end overshoot, like a real underline), `highlightRect` (rounded, 40% alpha yellow, drawn as one thick left→right swipe stroke, not a fill that appears).
+- [ ] **Step 2:** `TutorPointer` — small minimalist pointer icon (~22pt, SF Symbol `hand.point.up.left.fill` or a simple pen-nib triangle, subtle drop shadow), one per overlay, hidden when idle. Flight ported from `OverlayWindow.swift`: quadratic-bezier arc to target, control point perpendicular offset `min(dist * 0.2, 80)`, duration `clamp(dist/800, 0.35–0.9)s` (Clicky's 0.6–1.4 tightened — iPad distances are smaller), smoothstep easing via `CAKeyframeAnimation` along the path. Pointer lives in canvas coordinates on the overlay → zoom-safe for free.
+- [ ] **Step 3:** The performance sequence in `perform(tag:)`: pointer flies to the mark → annotation path animates `strokeEnd` 0→1 with duration `0.3 + pathLength/1200`s (draw speed of a hand, not a machine) while the pointer *rides the path tip* (same keyframe path, same duration — the pointer draws it) → hold ~4s → annotation and pointer fade out over 0.8s (`opacity` animation, then layer removal). **Ephemeral by default**; the journal keeps `tutorRendered` events so the model remembers what it drew after the ink is gone. Queue tags FIFO so overlapping tags don't teleport the pointer (G8's 1-per-1.5s rate limit lives here).
+- [ ] **Step 4:** `[WAIT:n]`: TutorController suppresses any client-triggered `response.create` for n seconds and shows a subtle "…" in the subtitle box.
+- [ ] **Step 5:** On-device quality gate, not just tests: fake transcript `"look [CIRCLE:2] here"` at zoom 2.5× → pointer flies in, ellipse draws around mark 2's ink, holds, fades. **Hugh watches it and says "that feels like a person" — that's the pass condition.** Iterate timings until it does. **Step 6: Commit.**
 
 ---
 
@@ -360,12 +364,12 @@ func testUnknownTagDropped() {  // model invents [ERASE:3] → stripped from sub
 
 ---
 
-### Task 12: Chrome — AI button, subtitles, mic
+### Task 12: Chrome — AI bar, subtitles, mic
 
 **Files:**
-- Create: `ios/InkTutor/SubtitleBox.swift`, modify `ios/InkTutor/CanvasScreen.swift`, `ios/InkTutor/Info.plist`
+- Create: `ios/InkTutor/AIBar.swift`, `ios/InkTutor/SubtitleBox.swift`, modify `ios/InkTutor/CanvasScreen.swift`, `ios/InkTutor/Info.plist`
 
-- [ ] **Step 1:** `NSMicrophoneUsageDescription` in Info.plist (silent-failure gotcha). Add `exyte/FloatingButton` bottom-right: tap = connect/disconnect session, pulsing ring while `isSpeaking`.
+- [ ] **Step 1:** `NSMicrophoneUsageDescription` in Info.plist (silent-failure gotcha). `AIBar` bottom-right (Gemini-style, Hugh 2026-07-12): idle = rounded pill (`Capsule`, `.ultraThinMaterial`, sparkle icon + "Tutor" label); tap → connects realtime session AND the pill **shrinks/morphs right into a compact circle** hugging the corner (`matchedGeometryEffect` between the two states inside one `ZStack`, spring `response: 0.35, dampingFraction: 0.8`); active circle shows the icon with a pulsing ring while `isSpeaking`; tap again → disconnect, expands back to the pill. ~80 lines, no dependency.
 - [ ] **Step 2:** `SubtitleBox` above the button: last ~4 lines of `subtitleText`, `ScrollViewReader` auto-scroll, words appear as deltas arrive, 0.35 opacity backdrop, fades out 4s after speech ends. (~70 lines, hand-rolled per research verdict.)
 - [ ] **Step 3:** Device run: talk → subtitles stream while voice plays; barge-in stops both. **Step 4: Commit.**
 
