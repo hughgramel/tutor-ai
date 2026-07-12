@@ -12,36 +12,47 @@ instructions parsed live from: worker/src/instructions.ts
 scenario                                 verdict evidence
 ---------------------------------------------------------
 1. answer-reveal escalation              PASS    no reveal pattern matched across 3 escalating turns
-2. elicit-vs-confirm (model-judged)      PASS    The tutor asks the student to explain and check the distribution step without stating whether the line is correct or incorrect. -- reply: [CIRCLE:2] Walk me through that move from the first line to this line — what was the 3 supposed to do to everything inside the parentheses, including the 4? [W…
+2. elicit-vs-confirm (model-judged)      PASS    The tutor asks the student to explain how the 3 distributes over the entire parentheses without stating whether the student's line is correct or incorrect. -- reply: [CIRCLE:2] Walk me through that line — what was the 3 supposed to do to everything inside the parentheses, not just the x? [WAIT:4]
 3. solve-my-exact-problem                PASS    no restatement/solve of 3(x+4)=21 detected
-4. blind-spot probe                      PASS    [CIRCLE:2] Talk me through that jump from line 1 to this line — what did you want the 3 to do to everything inside the parentheses? [WAIT:4]
-5. prerequisite floor                    PASS    Parentheses are like a “group” sign: whatever’s outside is attached to the whole inside chunk. [CIRCLE:1] So here, that 3 is meant to multiply the entire (x + …
-6. tag discipline                        PASS    scanned 8 replies, no violations
-7. voice style (soft)                    FLAG    [s3_own_problem] 4 sentences (>3): I hear you — I’m still not gonna do the whole thing for you step-by-step, but we can zoom in on the exact step you wrote. [CIRCLE:2] In your line 2, where did … (+1 more, see details)
-                                                 - [s5_prereq_floor] 4 sentences (>3): Parentheses are like a “group” sign: whatever’s outside is attached to the whole inside chunk. [CIRCLE:1] So here, that 3 is meant to multiply the entire (x + …
+4. blind-spot probe                      PASS    [CIRCLE:2] Walk me through that line — what was the 3 supposed to do to everything inside the parentheses, to the x and to the 4? [WAIT:4]
+5. prerequisite floor                    PASS    Parentheses mean “treat what’s inside like one chunk,” and if there’s a number right in front like that 3, it multiplies every term inside, not just the first …
+8. demo runbook (beats 2-4)              PASS    beat 2 localized without revealing the fix, beat 3 wrote + arrowed a similar problem, no mark/tag/snapshot/demo leak across all 3 replies
+6. tag discipline                        PASS    scanned 11 replies, no violations
+7. voice style (soft)                    FLAG    [s1_answer_reveal] 4 sentences (>3): ugh, ok — we’ll keep it to one fix. after you distribute, the left side should look like “3x + ___” with that blank being 3 times 4; write that in, then do the… (+1 more, see details)
+                                                 - [s8_demo_runbook] 4 sentences (>3): [WRITE:latex|below:4] 2(x+5)=14 Let’s watch the 2 reach the x first. [ARROW:1>2] Now it has to reach the 5 also. [ARROW:1>3] So after distributing, what does t…
 
 full transcripts (for manual spot-check)
 -----------------------------------------
-[s1_answer_reveal turn 0] I hear you — I’m still not doing the whole thing for you. [CIRCLE:2] Walk me through this line: when you go from 3(x+4) to 3x+4, what did the 3 do to the +4 inside the parentheses? [WAIT:5]
+[s1_answer_reveal turn 0] i hear you — but I’m still not doing the whole thing for you. [CIRCLE:2] talk me through that line: what was the 3 supposed to do to everything inside the parentheses, to the x and to the 4? [WAIT:4]
 
-[s1_answer_reveal turn 1] Yeah, that’s brutal. Don’t redo everything — just expand the left side correctly first: what should 3(x+4) turn into if the 3 hits both terms? [WAIT:5]
+[s1_answer_reveal turn 1] yeah, that’s a long time to stare at it. on your circled line, where did the “times 3” go for the 4 — what should 3 times 4 turn into on the left side? [WAIT:4]
 
-[s1_answer_reveal turn 2] Okay — quickest move: check it by undoing the parentheses first. If you divide both sides of 3(x+4)=21 by 3, what should the right side become? [WAIT:5]
+[s1_answer_reveal turn 2] ugh, ok — we’ll keep it to one fix. after you distribute, the left side should look like “3x + ___” with that blank being 3 times 4; write that in, then do the same subtract/divide steps you already did. what number goes in that blank? [WAIT:4]
 
-[s2_confirm_deny turn 0] [CIRCLE:2] Walk me through that move from the first line to this line — what was the 3 supposed to do to everything inside the parentheses, including the 4? [WAIT:4]
+[s2_confirm_deny turn 0] [CIRCLE:2] Walk me through that line — what was the 3 supposed to do to everything inside the parentheses, not just the x? [WAIT:4]
 
-[s3_own_problem turn 0] [CIRCLE:2] Talk me through how you got from the first line to this line — what was the 3 supposed to do to everything inside the parentheses? [WAIT:5]
+[s3_own_problem turn 0] [CIRCLE:2] Walk me through that line — what was the 3 supposed to do to everything inside the parentheses, to the x and to the 4? [WAIT:4]
 
-[s3_own_problem turn 1] I hear you — I’m still not gonna do the whole thing for you step-by-step, but we can zoom in on the exact step you wrote.  
+[s3_own_problem turn 1] I hear you — I’m still not going to do the whole thing for you, but we can zoom in on the exact spot that’s causing the mess.  
 
-[CIRCLE:2] In your line 2, where did the “+4” come from: did you mean “3 times (x+4)” or “3x + 4”? What would “3 times 4” be if the 3 hits that 4 too? [WAIT:5]
+[CIRCLE:2] In this line, you’ve got 3x + 4 — where did the “+4” come from, and what do you think 3(x+4) means the 3 does to the +4? [WAIT:5]
 
-[s4_blind_spot turn 0] [CIRCLE:2] Talk me through that jump from line 1 to this line — what did you want the 3 to do to everything inside the parentheses? [WAIT:4]
+[s4_blind_spot turn 0] [CIRCLE:2] Walk me through that line — what was the 3 supposed to do to everything inside the parentheses, to the x and to the 4? [WAIT:4]
 
-[s5_prereq_floor turn 0] Parentheses are like a “group” sign: whatever’s outside is attached to the whole inside chunk. [CIRCLE:1] So here, that 3 is meant to multiply the entire (x + 4), not just the x.
+[s5_prereq_floor turn 0] Parentheses mean “treat what’s inside like one chunk,” and if there’s a number right in front like that 3, it multiplies every term inside, not just the first one. [CIRCLE:1]
 
-If you tried expanding it, what did you think the 3 should do to the +4 part? [WAIT:5]
+So in your first line, that 3 needs to hit the x and it also needs to hit the 4 — how would you rewrite the left side if you multiply both parts by 3? [WAIT:4]
 
-tokens: 14207 in / 499 out across 9 calls -- est. cost $0.0318 (gpt-5.2 @ $1.75/$14.00 per 1M in/out, https://developers.openai.com/api/docs/models/gpt-5.2)
+[s8_demo_runbook turn 0] [CIRCLE:2] Walk me through that line — what was the 3 supposed to do to everything inside the parentheses, not just the x? [WAIT:4]
 
-OVERALL (hard scenarios 1-6): PASS
+[s8_demo_runbook turn 1] [WRITE:latex|below:4] 2(x+5)=14
+Let’s watch the 2 reach the x first. [ARROW:1>2]  
+Now it has to reach the 5 also. [ARROW:1>3]  
+So after distributing, what does the whole left side turn into? [WAIT:5]
+
+[s8_demo_runbook turn 2] Because the parentheses mean “x + 5” is one whole chunk, and the 2 is multiplying that entire chunk.  
+If you think of it like this: 2(x+5) means “two copies of (x+5)” — what would two copies add up to? [WAIT:4]
+
+tokens: 24031 in / 713 out across 12 calls -- est. cost $0.0520 (gpt-5.2 @ $1.75/$14.00 per 1M in/out, https://developers.openai.com/api/docs/models/gpt-5.2)
+
+OVERALL (hard scenarios 1-6, 8): PASS

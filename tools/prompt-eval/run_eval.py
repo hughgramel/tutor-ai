@@ -22,7 +22,7 @@ Never prints or logs the key.
 Usage:
     python3 tools/prompt-eval/run_eval.py
 
-Exit code 0 iff every "hard" scenario (1-6) passes. Scenario 7 (voice
+Exit code 0 iff every "hard" scenario (1-6, 8) passes. Scenario 7 (voice
 style) is soft: it only ever flags, never fails, and doesn't affect
 the exit code.
 """
@@ -64,6 +64,7 @@ COORD_TAG_RE = re.compile(r"\[[A-Z]+:[^\]]*\d+\s*,\s*\d+[^\]]*\]")
 ERASE_TAG_RE = re.compile(r"\[(?:ERASE|DELETE|CLEAR|REMOVE)\b", re.IGNORECASE)
 NEWPAGE_TAG_RE = re.compile(r"\[NEWPAGE\]")
 WRITE_TAG_RE = re.compile(r"\[WRITE:")
+ARROW_TAG_RE = re.compile(r"\[ARROW:")
 
 PRAISE_RE = re.compile(
     r"\b(great job|awesome|nice work|well done|good job|excellent|amazing)\b",
@@ -240,10 +241,75 @@ def eval_prereq_floor(replies: list[str]) -> Result:
     return Result("5. prerequisite floor", True, "PASS", quote(reply))
 
 
+CIRCLE2_TAG_RE = re.compile(r"\[CIRCLE:2\]")
+
+# words that would break character and describe the app's own machinery to
+# the student (mark ids, tags, snapshot images, "the system", pre-knowledge
+# of the demo problem) instead of just tutoring. \b...\b so "remarkable" /
+# "tagged" / "demonstrate" don't false-positive.
+META_LEAK_PATTERNS = {
+    "mark": re.compile(r"\bmarks?\b", re.IGNORECASE),
+    "tag": re.compile(r"\btags?\b", re.IGNORECASE),
+    "snapshot": re.compile(r"\bsnapshots?\b", re.IGNORECASE),
+    "demo": re.compile(r"\bdemo\b", re.IGNORECASE),
+}
+
+
+def eval_demo_runbook(replies: list[str]) -> Result:
+    """Scenario 8: docs/demo-runbook.md beats 2-4, exercising the
+    distribution-error standard play added to instructions.ts.
+
+    beat 2 ("check my work?"): must [CIRCLE:2] the wrong step (mark 2 is
+    3x+4=21 per REGISTRY_JSON/SNAPSHOT_CONTEXT above) and must not reveal
+    the fix.
+    beat 3 ("show me on a similar one?"): must [WRITE] a similar problem
+    and narrate at least one [ARROW] (the per-term arc rule).
+    across all three replies: never breaks character to describe marks,
+    tags, snapshots, or that it already knew/expected this problem.
+    """
+    name = "8. demo runbook (beats 2-4)"
+    details: list[str] = []
+
+    beat2 = replies[0] if len(replies) > 0 else ""
+    beat3 = replies[1] if len(replies) > 1 else ""
+
+    if not CIRCLE2_TAG_RE.search(beat2):
+        details.append(f"beat 2: no [CIRCLE:2] tag: {quote(beat2)}")
+    fix_hit = first_match(FIX_REVEAL_PATTERNS, [beat2])
+    if fix_hit:
+        details.append(f"beat 2: revealed the fix: {quote(fix_hit)}")
+
+    if not WRITE_TAG_RE.search(beat3):
+        details.append(f"beat 3: no [WRITE:] tag: {quote(beat3)}")
+    if not ARROW_TAG_RE.search(beat3):
+        details.append(f"beat 3: no [ARROW:] tag: {quote(beat3)}")
+
+    for word, pattern in META_LEAK_PATTERNS.items():
+        hit = first_match([pattern], replies)
+        if hit:
+            details.append(f"broke character, said '{word}': {quote(hit)}")
+
+    if details:
+        return Result(name, True, "FAIL", details[0], details=details)
+    return Result(
+        name, True, "PASS",
+        "beat 2 localized without revealing the fix, beat 3 wrote + arrowed a similar problem, "
+        "no mark/tag/snapshot/demo leak across all 3 replies",
+    )
+
+
 def eval_tag_discipline(all_replies: list[tuple[str, int, str]]) -> Result:
-    """all_replies: list of (scenario_name, turn_index_in_scenario, reply_text)"""
+    """all_replies: list of (scenario_name, turn_index_in_scenario, reply_text)
+
+    Note: this used to also require a [NEWPAGE] tag before any [WRITE] tag
+    ("likely targeting student page"). That assumed a multi-page canvas.
+    instructions.ts's doc comment now states NEWPAGE is no longer taught to
+    the model (2026-07-12: one shared canvas, TutorCoordinator drops it
+    silently) — [WRITE] is expected to land below the student's most recent
+    work on that single canvas with no NEWPAGE preamble. Removed the stale
+    check; it was previously dead code since no earlier scenario elicited a
+    [WRITE] tag at all."""
     violations = []
-    seen_newpage: dict[str, bool] = {}
     for scenario_name, _turn_idx, reply in all_replies:
         for sentence in re.split(r"(?<=[.!?])\s+", reply.strip()):
             tags = TAG_RE.findall(sentence)
@@ -255,12 +321,6 @@ def eval_tag_discipline(all_replies: list[tuple[str, int, str]]) -> Result:
         erase_hits = ERASE_TAG_RE.findall(reply)
         if erase_hits:
             violations.append(f"[{scenario_name}] erase-like tag: {quote(reply)}")
-        opened = seen_newpage.get(scenario_name, False)
-        if NEWPAGE_TAG_RE.search(reply):
-            opened = True
-        if WRITE_TAG_RE.search(reply) and not opened:
-            violations.append(f"[{scenario_name}] [WRITE] before any [NEWPAGE] in this conversation (likely targeting student page): {quote(reply)}")
-        seen_newpage[scenario_name] = opened
     if violations:
         summary = violations[0] + (f" (+{len(violations) - 1} more, see details)" if len(violations) > 1 else "")
         return Result("6. tag discipline", True, "FAIL", summary, details=violations)
@@ -365,10 +425,25 @@ def main() -> int:
     all_replies += [("s5_prereq_floor", i, t) for i, t in enumerate(r5)]
     results.append(eval_prereq_floor(r5))
 
-    # Scenario 6: tag discipline, scanned across all replies from 1-5
+    # Scenario 8: demo runbook beats 2-4 (docs/demo-runbook.md) — the
+    # distribution-error standard play: localize without solving, worked
+    # example with per-term arrows, never break character about marks/tags.
+    r8 = run_conversation(
+        client, model, instructions,
+        [
+            "something's wrong here but I can't find it — can you check my work?",
+            "hmm... show me on a similar one?",
+            "wait — why does the 2 have to visit both?",
+        ],
+        usage,
+    )
+    all_replies += [("s8_demo_runbook", i, t) for i, t in enumerate(r8)]
+    results.append(eval_demo_runbook(r8))
+
+    # Scenario 6: tag discipline, scanned across all replies from 1-5, 8
     results.append(eval_tag_discipline(all_replies))
 
-    # Scenario 7: voice style, soft, scanned across all replies from 1-5
+    # Scenario 7: voice style, soft, scanned across all replies from 1-5, 8
     results.append(eval_voice_style(all_replies))
 
     # --- report ---
@@ -424,7 +499,7 @@ def main() -> int:
         )
     lines.append(cost_line)
     lines.append("")
-    lines.append(f"OVERALL (hard scenarios 1-6): {'PASS' if all_hard_pass else 'FAIL'}")
+    lines.append(f"OVERALL (hard scenarios 1-6, 8): {'PASS' if all_hard_pass else 'FAIL'}")
 
     report = "\n".join(lines)
     print(report)
