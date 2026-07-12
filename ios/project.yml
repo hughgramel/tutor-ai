@@ -23,7 +23,8 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.tutorai.inktutor
         TARGETED_DEVICE_FAMILY: 2   # iPad only
         GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        # Portrait-first (Hugh, 2026-07-12): paper is portrait, so is the page model
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown"
         INFOPLIST_KEY_UIUserInterfaceStyle: Light   # app is light-mode only (white paper), demo lock
         INFOPLIST_KEY_NSMicrophoneUsageDescription: "InkTutor uses the microphone so you can talk to your tutor."
         # Signing lives HERE, not the Xcode GUI — xcodegen regenerate wipes

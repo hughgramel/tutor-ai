@@ -58,16 +58,10 @@ struct VoiceBarView: View {
     }
 
     var body: some View {
+        // Chrome on top, speech BELOW the waveform (Hugh, 2026-07-12) —
+        // reading flows downward from the thing you're touching.
         VStack(alignment: .trailing, spacing: 10) {
-            if isConnected && !subtitleLines.isEmpty {
-                subtitleBox
-                    .transition(.opacity.combined(with: .move(edge: .top)))
-            }
-
-            if isConnected && !studentTranscript.isEmpty {
-                studentTranscriptLine
-                    .transition(.opacity)
-            }
+            morphingChrome
 
             // Fixed-height caption slot — conditional insertion shifted the
             // chrome vertically every time the caption appeared/vanished
@@ -78,7 +72,15 @@ struct VoiceBarView: View {
                 .frame(height: 14)
                 .opacity(pillCaption == nil ? 0 : 1)
 
-            morphingChrome
+            if isConnected && (!subtitleLines.isEmpty || !currentLine.isEmpty) {
+                subtitleBox
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
+
+            if isConnected && !studentTranscript.isEmpty {
+                studentTranscriptLine
+                    .transition(.opacity)
+            }
         }
         .animation(.spring(response: 0.35, dampingFraction: 0.8), value: connection)
         .animation(.easeInOut(duration: 0.2), value: studentTranscript)
@@ -219,17 +221,22 @@ struct VoiceBarView: View {
     /// Visible glass chip stays 32x32 (unchanged look); the tappable area
     /// is padded out to 44x44 to clear Apple's HIG minimum touch target
     /// (Hugh, device testing, 2026-07-12: ✕ wasn't reliably registering).
+    /// Not a Button (Hugh, device testing ×2: ✕ still didn't register) — a
+    /// plain view + onTapGesture can't lose priority to sibling gestures the
+    /// way UIKit-backed Button touch-up can, and the tap is logged so a dead
+    /// ✕ is diagnosable from the console instead of a mystery.
     private var closeButton: some View {
-        Button(action: handleClose) {
-            Image(systemName: "xmark")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.primary)
-                .frame(width: 32, height: 32)
-        }
-        .buttonStyle(.plain)
-        .glassBackground(cornerRadius: 16)
-        .frame(width: 44, height: 44)
-        .contentShape(Rectangle())
+        Image(systemName: "xmark")
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(.primary)
+            .frame(width: 32, height: 32)
+            .glassBackground(cornerRadius: 16)
+            .frame(width: 44, height: 44)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                TutorLog.shared.lifecycle("close (X) tapped")
+                handleClose()
+            }
     }
 
     private func barHeight(for level: CGFloat) -> CGFloat {
@@ -241,13 +248,23 @@ struct VoiceBarView: View {
 
     // MARK: - Subtitles
 
+    /// Completed lines dim; `currentLine` — the words being spoken RIGHT NOW,
+    /// revealed word-by-word at speech pace — is always visible and full-
+    /// opacity, so the box tracks exactly where the voice is (Hugh,
+    /// 2026-07-12: "make sure we're tracking what's actually being spoken").
     private var subtitleBox: some View {
         VStack(alignment: .trailing, spacing: 3) {
-            ForEach(Array(subtitleLines.suffix(3).enumerated()), id: \.offset) { index, line in
+            ForEach(Array(subtitleLines.suffix(2).enumerated()), id: \.offset) { index, line in
                 Text(line)
                     .font(.system(size: 13))
                     .foregroundStyle(.primary)
-                    .opacity(subtitleOpacity(forDistanceFromEnd: subtitleLines.suffix(3).count - 1 - index))
+                    .opacity(subtitleOpacity(forDistanceFromEnd: subtitleLines.suffix(2).count - index))
+                    .multilineTextAlignment(.trailing)
+            }
+            if !currentLine.isEmpty {
+                Text(currentLine)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.primary)
                     .multilineTextAlignment(.trailing)
             }
         }
@@ -325,6 +342,9 @@ struct VoiceBarView: View {
     private func disconnect() {
         session.endSession()
         connection = .idle
+        revealTask?.cancel()
+        revealTask = nil
+        pendingSpeech = ""
         resetWaveform()
         resetGestureState()
     }
@@ -405,18 +425,63 @@ struct VoiceBarView: View {
         }
     }
 
+    // MARK: - Word-paced subtitle reveal
+    //
+    // Transcript deltas arrive much FASTER than the audio plays — dumping
+    // them straight into the box put the text a full sentence ahead of the
+    // voice (Hugh, 2026-07-12: "make sure we have the word boundary so when
+    // it's speaking we know exactly what line it's on"). So deltas land in
+    // `pendingSpeech`, and a reveal loop pops one word at a time at roughly
+    // speech pace (Clicky's char-pacing trick, ~45ms/char clamped 90–320ms
+    // per word). When the audio has stopped (`session.isSpeaking == false`)
+    // the remainder flushes fast so the box never lags a finished voice.
+    // ponytail: paced estimate, not true audio-timestamp alignment — the
+    // Realtime API doesn't emit per-word playback timestamps over WebRTC.
+
+    @State private var pendingSpeech = ""
+    @State private var revealTask: Task<Void, Never>?
+
     private func appendTranscriptDelta(_ delta: String) {
         isThinking = false  // first sign of the tutor's response — see endHold()
-        currentLine += delta
-        // A line break lands whenever the delta contains sentence-ending
-        // punctuation followed by a space -- good enough for subtitle
-        // cadence without needing full sentence parsing.
-        if delta.contains(where: { ".!?".contains($0) }) {
-            subtitleLines.append(currentLine.trimmingCharacters(in: .whitespaces))
-            currentLine = ""
-            if subtitleLines.count > 12 {
-                subtitleLines.removeFirst(subtitleLines.count - 12)
+        pendingSpeech += delta
+        startRevealLoopIfNeeded()
+    }
+
+    private func startRevealLoopIfNeeded() {
+        guard revealTask == nil else { return }
+        revealTask = Task { @MainActor in
+            while !pendingSpeech.isEmpty && !Task.isCancelled {
+                let word = popNextWord()
+                currentLine += word
+                completeLineIfSentenceEnded(word)
+                let ms = session.isSpeaking
+                    ? min(max(Double(word.count) * 45, 90), 320)
+                    : 25 // audio done — drain the rest quickly
+                try? await Task.sleep(nanoseconds: UInt64(ms * 1_000_000))
             }
+            revealTask = nil
+        }
+    }
+
+    /// Pops through the next space (word + its trailing whitespace).
+    private func popNextWord() -> String {
+        if let spaceIdx = pendingSpeech.firstIndex(of: " ") {
+            let end = pendingSpeech.index(after: spaceIdx)
+            let word = String(pendingSpeech[..<end])
+            pendingSpeech.removeSubrange(..<end)
+            return word
+        }
+        let word = pendingSpeech
+        pendingSpeech = ""
+        return word
+    }
+
+    private func completeLineIfSentenceEnded(_ word: String) {
+        guard word.contains(where: { ".!?".contains($0) }) else { return }
+        subtitleLines.append(currentLine.trimmingCharacters(in: .whitespaces))
+        currentLine = ""
+        if subtitleLines.count > 12 {
+            subtitleLines.removeFirst(subtitleLines.count - 12)
         }
     }
 
