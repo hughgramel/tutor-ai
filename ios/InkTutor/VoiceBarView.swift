@@ -51,6 +51,7 @@ struct VoiceBarView: View {
     private var isConnected: Bool { connection == .live || connection == .connecting }
 
     private var pillCaption: String? {
+        if connection == .connecting { return "connecting — keep holding" }
         if isHolding { return "listening" }
         if isThinking { return "…" }
         return nil
@@ -89,57 +90,33 @@ struct VoiceBarView: View {
     /// glass identity inside the container. Below iOS 26 this just falls
     /// back to a plain switch (the earlier deployment target this project
     /// still declares).
-    @ViewBuilder
+    /// The talk surface (idle box ⇄ waveform pill) is ONE stable view whose
+    /// contents cross-fade — NOT a switch that swaps views. A switch removes
+    /// the view mid-press when idle morphs to pill, which cancels the
+    /// long-press gesture and kills the one-gesture hold flow (press "Ask
+    /// AI" → connect → mic live → release sends). The ✕ sits outside the
+    /// gesture surface. (Traded away the GlassEffectContainer morph for
+    /// gesture continuity — function over gloss.)
     private var morphingChrome: some View {
-        let content = Group {
-            switch connection {
-            case .idle, .error:
-                idleBox
-            case .connecting, .live:
-                // Spacing widened 8 -> 10 (Hugh, device testing, 2026-07-12:
-                // ✕ wasn't reliably closing the session) — extra separation
-                // from the pill's touch area, on top of the closeButton hit
-                // target fix below.
-                HStack(spacing: 10) {
-                    waveformPill
-                    closeButton
-                }
+        HStack(spacing: 10) {
+            talkSurface
+            if isConnected {
+                closeButton
+                    .transition(.opacity.combined(with: .scale))
             }
-        }
-
-        if #available(iOS 26.0, *) {
-            GlassEffectContainer(spacing: 16) {
-                content
-            }
-        } else {
-            content
         }
     }
 
-    // MARK: - Idle state
+    private var showPill: Bool { isConnected }
 
-    /// Idle: a static mini-waveform as the icon — the button previews the
-    /// interaction it starts — plus a soft top sheen for the glossy read.
-    private static let idleWaveHeights: [CGFloat] = [7, 13, 18, 11, 6]
-
-    private var idleBox: some View {
-        Button(action: connect) {
-            HStack(spacing: 10) {
-                HStack(spacing: 2.5) {
-                    ForEach(Array(Self.idleWaveHeights.enumerated()), id: \.offset) { _, h in
-                        Capsule()
-                            .fill(connection == .error ? Color.red : Color.primary.opacity(0.75))
-                            .frame(width: 2.5, height: h)
-                    }
-                }
-                Text("Ask AI")
-                    .font(.system(size: 15, weight: .semibold, design: .rounded))
-            }
-            .foregroundStyle(connection == .error ? .red : .primary)
-            .padding(.horizontal, 18)
-            .padding(.vertical, 13)
+    private var talkSurface: some View {
+        ZStack {
+            idleContent.opacity(showPill ? 0 : 1)
+            pillContent.opacity(showPill ? 1 : 0)
         }
-        .buttonStyle(.plain)
+        .padding(.horizontal, showPill ? 12 : 18)
+        .padding(.vertical, showPill ? 10 : 13)
+        .contentShape(Capsule())
         .glassBackground(cornerRadius: 26, tint: connection == .error ? .red.opacity(0.15) : nil)
         .overlay(
             // glossy sheen: bright top edge fading out mid-capsule
@@ -149,7 +126,37 @@ struct VoiceBarView: View {
                 .allowsHitTesting(false)
         )
         .clipShape(Capsule())
-        .voiceGlassID(in: glassNamespace)
+        .scaleEffect(isHolding ? 1.12 : (connection == .connecting ? 0.97 : 1.0))
+        .animation(.spring(response: 0.25, dampingFraction: 0.7), value: isHolding)
+        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: showPill)
+        .onLongPressGesture(minimumDuration: 0.01, maximumDistance: 60, perform: {}, onPressingChanged: handlePress)
+    }
+
+    // MARK: - Idle state
+
+    /// Idle: a static mini-waveform as the icon — the button previews the
+    /// interaction it starts — plus a soft top sheen for the glossy read.
+    private static let idleWaveHeights: [CGFloat] = [7, 13, 18, 11, 6]
+
+    /// One gesture end-to-end (Hugh, device testing, 2026-07-12: "you can't
+    /// just hold down and then release to have it respond" — before this,
+    /// the idle button only connected on tap and hold-to-talk existed only
+    /// on the post-morph pill, so holding "Ask AI" and speaking went
+    /// nowhere). Press-down here starts connecting AND queues the hold; the
+    /// mic goes live the instant the session is up; release commits.
+    private var idleContent: some View {
+        HStack(spacing: 10) {
+            HStack(spacing: 2.5) {
+                ForEach(Array(Self.idleWaveHeights.enumerated()), id: \.offset) { _, h in
+                    Capsule()
+                        .fill(connection == .error ? Color.red : Color.primary.opacity(0.75))
+                        .frame(width: 2.5, height: h)
+                }
+            }
+            Text("Ask AI")
+                .font(.system(size: 15, weight: .semibold, design: .rounded))
+        }
+        .foregroundStyle(connection == .error ? .red : .primary)
     }
 
     // MARK: - Waveform pill
@@ -164,7 +171,7 @@ struct VoiceBarView: View {
     /// scoped to this view's own 56x32 + padding frame). Widened the ✕'s tap
     /// target and the HStack spacing anyway as extra margin (device
     /// testing, 2026-07-12) since the two sit only a few points apart.
-    private var waveformPill: some View {
+    private var pillContent: some View {
         HStack(spacing: 3) {
             ForEach(Array(barLevels.enumerated()), id: \.offset) { _, level in
                 Capsule()
@@ -176,23 +183,9 @@ struct VoiceBarView: View {
             }
         }
         .frame(width: 56, height: 32)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .contentShape(Rectangle())
-        .glassBackground(cornerRadius: 22)
-        .voiceGlassID(in: glassNamespace)
         .opacity(connection == .connecting ? 0.55 : 1.0)
-        .scaleEffect(isHolding ? 1.12 : (connection == .connecting ? 0.97 : 1.0))
-        .animation(
-            connection == .connecting
-                ? .easeInOut(duration: 0.8).repeatForever(autoreverses: true)
-                : .spring(response: 0.25, dampingFraction: 0.7),
-            value: connection
-        )
-        .animation(.spring(response: 0.25, dampingFraction: 0.7), value: isHolding)
         .animation(.easeOut(duration: 0.08), value: barLevels)
         .onAppear(perform: resetWaveform)
-        .onLongPressGesture(minimumDuration: 0.01, maximumDistance: 60, perform: {}, onPressingChanged: handlePress)
     }
 
     // MARK: - Close button
@@ -278,7 +271,16 @@ struct VoiceBarView: View {
         Task {
             do {
                 try await session.connect()
-                await MainActor.run { connection = .live }
+                await MainActor.run {
+                    connection = .live
+                    // One-gesture flow: if the finger that initiated this
+                    // connect is still down, the hold starts right now —
+                    // the "listening" caption tells the user the mic is live.
+                    if pressQueuedHold {
+                        pressQueuedHold = false
+                        beginHold()
+                    }
+                }
                 Task { await streamAudioLevels() }
                 Task { await streamUserTranscript() }
                 await streamTranscript()
@@ -304,22 +306,35 @@ struct VoiceBarView: View {
     private func resetGestureState() {
         isHolding = false
         isThinking = false
+        pressQueuedHold = false
     }
 
     // MARK: - Pill gesture: hold-to-talk
 
-    /// Fires on every press-down and press-up of the pill. Press-down
-    /// starts a hold, press-up ends it — no tap-length classification, no
-    /// double-tap. Barge-in (interrupting a speaking tutor) is just
-    /// holding while it talks; `RealtimeSession.startTalking` handles that.
+    /// Fires on every press-down and press-up of the idle box AND the pill.
+    /// Press-down starts a hold, press-up ends it — no tap-length
+    /// classification, no double-tap. Barge-in (interrupting a speaking
+    /// tutor) is just holding while it talks. From IDLE, press-down first
+    /// connects, and the hold begins automatically the moment the session
+    /// is live (Hugh, 2026-07-12: one gesture end-to-end — hold "Ask AI",
+    /// speak, release; no tap-then-hold dance). If the finger lifts before
+    /// the session is up, the queued hold is abandoned and the session just
+    /// stays connected, waiting.
     private func handlePress(_ pressing: Bool) {
-        guard connection == .live else { return }
-        if pressing {
-            beginHold()
-        } else {
-            endHold()
+        switch connection {
+        case .live:
+            if pressing { beginHold() } else { endHold() }
+        case .idle, .error:
+            guard pressing else { return }
+            pressQueuedHold = true
+            connect() // beginHold fires from connect() once live, if still pressed
+        case .connecting:
+            if !pressing { pressQueuedHold = false } // released before we got up
         }
     }
+
+    /// Set while the finger is down from an idle press, waiting on connect.
+    @State private var pressQueuedHold = false
 
     /// Haptics (Hugh, device testing, 2026-07-12: hold state wasn't clearly
     /// felt/seen) — `.medium` on hold-start reads as "grabbed the mic",
