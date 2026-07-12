@@ -442,7 +442,13 @@ final class RealtimeSession: NSObject, TutorSession {
 
     private func configureAudioSession() throws {
         let session = AVAudioSession.sharedInstance()
-        try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetoothHFP])
+        // .mixWithOthers so this session doesn't outright silence Zoom's
+        // broadcast-extension session when screen-sharing for a demo. Only
+        // covers our half of the interruption: if Zoom's own session
+        // activates non-mixable (its choice, not ours), it still wins and
+        // interrupts us regardless of this flag — needs testing against the
+        // actual Zoom share flow, not assumed fixed by this alone.
+        try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetoothHFP, .mixWithOthers])
         try session.setActive(true)
     }
 
@@ -575,6 +581,50 @@ final class RealtimeSession: NSObject, TutorSession {
         }
     }
 
+    // MARK: - Tool-call → tag translation
+
+    /// Maps a silent realtime function call onto the inline-tag grammar the
+    /// rest of the app already parses/renders (`TagParser.swift` is the
+    /// grammar's source of truth). Returns nil for unknown tools/args.
+    static func tagForToolCall(name: String, argsJSON: String) -> String? {
+        guard let data = argsJSON.data(using: .utf8),
+              let args = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        else { return nil }
+        switch name {
+        case "annotate":
+            guard let action = args["action"] as? String,
+                  let mark = args["mark"] as? Int else { return nil }
+            switch action {
+            case "circle": return "[CIRCLE:\(mark)]"
+            case "underline": return "[UNDERLINE:\(mark)]"
+            case "arrow":
+                guard let to = args["to"] as? Int else { return nil }
+                return "[ARROW:\(mark)>\(to)]"
+            default: return nil
+            }
+        case "write_math":
+            guard let latex = args["latex"] as? String, !latex.isEmpty else { return nil }
+            let anchor: String
+            if let below = args["below"] as? Int { anchor = "below:\(below)" }
+            else { anchor = "below:last" }
+            return "[WRITE:\(latex)|\(anchor)]"
+        case "draw_shape":
+            guard let kind = args["kind"] as? String,
+                  let pts = args["points"] as? [[Double]], pts.count >= 2 else { return nil }
+            let vertices = pts.compactMap { p -> String? in
+                guard p.count == 2 else { return nil }
+                return String(format: "%.3f,%.3f", p[0], p[1])
+            }.joined(separator: ";")
+            let label = (args["label"] as? String) ?? ""
+            return "[SHAPE:\(kind):\(vertices):\(label)]"
+        case "pause":
+            let seconds = (args["seconds"] as? Int) ?? 5
+            return "[WAIT:\(seconds)]"
+        default:
+            return nil
+        }
+    }
+
     // MARK: - Data channel event parsing
 
     private func handleServerEvent(_ data: Data) {
@@ -604,6 +654,41 @@ final class RealtimeSession: NSObject, TutorSession {
             // transcript already accumulated), so skip calibration here.
             isSpeaking = false
             audioStartTime = nil
+        case "response.output_item.done":
+            // Drawing commands arrive as FUNCTION CALLS, not inline tags —
+            // a realtime voice model SPEAKS its text output, so inline tags
+            // got voiced aloud ("circle eight"). Function calls ride the
+            // data channel silently. We translate each back into the exact
+            // tag string the existing pipeline understands and yield it into
+            // the same transcript stream: TagParser strips it from subtitles
+            // and dispatches it — zero downstream changes.
+            if let item = object["item"] as? [String: Any],
+               item["type"] as? String == "function_call",
+               let name = item["name"] as? String,
+               let callID = item["call_id"] as? String {
+                let argsJSON = item["arguments"] as? String ?? "{}"
+                if let tag = Self.tagForToolCall(name: name, argsJSON: argsJSON) {
+                    TutorLog.shared.lifecycle("tool call \(name) -> \(tag)")
+                    transcriptContinuation?.yield(tag)
+                } else {
+                    TutorLog.shared.info("tool call \(name) not translatable: \(argsJSON)")
+                }
+                // Ack immediately — the render is fire-and-forget client-side.
+                _ = send([
+                    "type": "conversation.item.create",
+                    "item": [
+                        "type": "function_call_output",
+                        "call_id": callID,
+                        "output": "{\"ok\":true}",
+                    ],
+                ])
+                // Resume narration after a drawing call — but NOT after
+                // `pause`: asking for a new response there would make the
+                // model talk through its own wait.
+                if name != "pause" {
+                    _ = send(["type": "response.create"])
+                }
+            }
         case "response.done":
             finishLatencyMeasurement()
         case "conversation.item.input_audio_transcription.completed":

@@ -23,6 +23,7 @@
 		731AC6B6EE8ADFDD39BF6773 /* MarkRegistryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB2122238A680F792BB5C8B2 /* MarkRegistryTests.swift */; };
 		762A1C26DDFA516824068412 /* assignment.pdf in Resources */ = {isa = PBXBuildFile; fileRef = 637A7394525D3B9DF4BF8288 /* assignment.pdf */; };
 		7B3EA07447AA52C8843000B8 /* PageModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 483F622626E09F2F5B1CBB50 /* PageModel.swift */; };
+		83D5449CB219E9985DAC99F6 /* ToolCallTagTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 566FB49A879C479B3BDA89C6 /* ToolCallTagTests.swift */; };
 		8B73FC6C8B4A29064F2D77EB /* SwiftMath in Frameworks */ = {isa = PBXBuildFile; productRef = 54B8B024BD1AABCAB7364844 /* SwiftMath */; };
 		8BD13F3D6FAD1AA3F7403A9E /* WebRTC in Frameworks */ = {isa = PBXBuildFile; productRef = 3B3516D40872201B9DB26222 /* WebRTC */; };
 		A1CA8E047C79B7341D79CA6A /* TutorLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89F69BBA8C8E4B46B99F469E /* TutorLog.swift */; };
@@ -59,6 +60,7 @@
 		4D5BC5008BAB4F838B9A10E5 /* Snapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Snapshot.swift; sourceTree = "<group>"; };
 		4D8A2F6E513737A88D93FB9C /* CanvasScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanvasScreen.swift; sourceTree = "<group>"; };
 		50BCDD75EB177C5B15EAA3B5 /* SnapshotTransformTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapshotTransformTests.swift; sourceTree = "<group>"; };
+		566FB49A879C479B3BDA89C6 /* ToolCallTagTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolCallTagTests.swift; sourceTree = "<group>"; };
 		6266234957DDEE9D4EE9D5AE /* RealtimeSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RealtimeSession.swift; sourceTree = "<group>"; };
 		637A7394525D3B9DF4BF8288 /* assignment.pdf */ = {isa = PBXFileReference; lastKnownFileType = image.pdf; path = assignment.pdf; sourceTree = "<group>"; };
 		657295A3C4B7C4D0ED19F627 /* PlaceholderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaceholderTests.swift; sourceTree = "<group>"; };
@@ -69,7 +71,7 @@
 		81A1161D5201C918F39AABDC /* CanvasView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanvasView.swift; sourceTree = "<group>"; };
 		89F69BBA8C8E4B46B99F469E /* TutorLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TutorLog.swift; sourceTree = "<group>"; };
 		B430EA41F546F95E59677D13 /* AnnotationGeometryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnnotationGeometryTests.swift; sourceTree = "<group>"; };
-		BA868DA7B0C07E34149845E2 /* InkTutor.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = InkTutor.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		BA868DA7B0C07E34149845E2 /* InkTutor.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = InkTutor.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		BEE3EC710F28F03357F0DAF8 /* Config.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Config.swift; sourceTree = "<group>"; };
 		D196AF68BEE8C2465A595D25 /* TagParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagParser.swift; sourceTree = "<group>"; };
 		D5663BAFA5DF124EA03FC950 /* AnnotationOverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnnotationOverlayView.swift; sourceTree = "<group>"; };
@@ -135,6 +137,7 @@
 				657295A3C4B7C4D0ED19F627 /* PlaceholderTests.swift */,
 				50BCDD75EB177C5B15EAA3B5 /* SnapshotTransformTests.swift */,
 				FD7C4670EEF4DEFD9210D6BC /* TagParserTests.swift */,
+				566FB49A879C479B3BDA89C6 /* ToolCallTagTests.swift */,
 				E60802D0720C666C6E70F543 /* TutorCoordinatorTests.swift */,
 				773410DD75622CCDAD81D8FA /* TutorWriterTests.swift */,
 				30468703B0FE9BC1A8479CC4 /* TutorWriterVisualHarness.swift */,
@@ -212,6 +215,7 @@
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
 					600CD734224C6A9799006E54 = {
+						DevelopmentTeam = 9GAK47LFPY;
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -262,6 +266,7 @@
 				433E67C39E7330CA330EE7BA /* PlaceholderTests.swift in Sources */,
 				DEC87AD64D75BC4AF4C3C9C6 /* SnapshotTransformTests.swift in Sources */,
 				511147B0E421F4BA44E84130 /* TagParserTests.swift in Sources */,
+				83D5449CB219E9985DAC99F6 /* ToolCallTagTests.swift in Sources */,
 				6BB65BAB175A0845D6E31F97 /* TutorCoordinatorTests.swift in Sources */,
 				FD900F3D04655AD9D5144B26 /* TutorWriterTests.swift in Sources */,
 				EEEE9366B602E8D347211F01 /* TutorWriterVisualHarness.swift in Sources */,
@@ -382,7 +387,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = JWT3RYQ292;
+				DEVELOPMENT_TEAM = 9GAK47LFPY;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "InkTutor uses the microphone so you can talk to your tutor.";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
@@ -420,7 +425,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = JWT3RYQ292;
+				DEVELOPMENT_TEAM = 9GAK47LFPY;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "InkTutor uses the microphone so you can talk to your tutor.";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";

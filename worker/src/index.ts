@@ -54,6 +54,69 @@ async function mintRealtimeToken(env: Env): Promise<Response> {
         type: "realtime",
         model: "gpt-realtime-2.1",
         instructions: INSTRUCTIONS,
+        // Drawing = silent function calls. Inline tags in the audio stream
+        // got VOICED by the model ("circle eight") — a realtime voice model
+        // speaks everything it generates, so pointing must ride the tool
+        // channel instead. The client (RealtimeSession.tagForToolCall)
+        // translates calls back into the internal tag grammar.
+        tools: [
+          {
+            type: "function",
+            name: "annotate",
+            description:
+              "Point at the student's ink. Draws a hand-styled circle/underline on one mark, or a curved arrow between two marks. Silent — pair it with your spoken words.",
+            parameters: {
+              type: "object",
+              properties: {
+                action: { type: "string", enum: ["circle", "underline", "arrow"] },
+                mark: { type: "integer", description: "mark id (arrow: source)" },
+                to: { type: "integer", description: "arrow target mark id (arrow only)" },
+              },
+              required: ["action", "mark"],
+            },
+          },
+          {
+            type: "function",
+            name: "write_math",
+            description:
+              "Hand-write math on the page in the open space below the student's most recent work. LaTeX, one line per call.",
+            parameters: {
+              type: "object",
+              properties: {
+                latex: { type: "string" },
+                below: { type: "integer", description: "optional mark id to write beneath; default = below everything" },
+              },
+              required: ["latex"],
+            },
+          },
+          {
+            type: "function",
+            name: "draw_shape",
+            description:
+              "Draw a simple hand-styled diagram (polygon/line/curve) in open space. Points are normalized 0..1 [x,y] pairs.",
+            parameters: {
+              type: "object",
+              properties: {
+                kind: { type: "string", enum: ["polygon", "line", "curve"] },
+                points: { type: "array", items: { type: "array", items: { type: "number" } } },
+                label: { type: "string" },
+              },
+              required: ["kind", "points"],
+            },
+          },
+          {
+            type: "function",
+            name: "pause",
+            description:
+              "End your turn and stay silent while the student works. Call last, nothing after it.",
+            parameters: {
+              type: "object",
+              properties: { seconds: { type: "integer", description: "3-5 typical" } },
+              required: ["seconds"],
+            },
+          },
+        ],
+        tool_choice: "auto",
         audio: {
           output: { voice: "cedar" },  // male; was marin
           // Student speech transcript (low-opacity "you: ..." line, see
