@@ -9,6 +9,13 @@ protocol TutorSession: AnyObject {
     func pushImage(_ jpeg: Data) async            // conversation context, no response trigger
     func pushEvent(_ json: String) async          // journal events as text items
     var transcriptDeltas: AsyncStream<String> { get }   // feeds subtitles + TagParser
+    /// The student's own speech, transcribed server-side (Realtime API input
+    /// audio transcription — worker enables `session.audio.input.transcription`).
+    /// Yields one complete utterance per element, on
+    /// `conversation.item.input_audio_transcription.completed` — not deltas —
+    /// since the low-opacity "you: ..." line (VoiceBarView) just replaces on
+    /// each completed turn rather than streaming word-by-word.
+    var userTranscript: AsyncStream<String> { get }
     var isSpeaking: Bool { get }
     /// Live mic/tutor audio level, 0...1, emitted ~15Hz while connected —
     /// drives the voice bar's waveform. `max(micLevel, remoteLevel)` so

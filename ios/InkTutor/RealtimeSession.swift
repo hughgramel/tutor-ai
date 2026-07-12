@@ -27,6 +27,12 @@ final class RealtimeSession: NSObject, TutorSession {
         }
     }
 
+    var userTranscript: AsyncStream<String> {
+        AsyncStream { continuation in
+            self.userTranscriptContinuation = continuation
+        }
+    }
+
     var audioLevel: AsyncStream<Float> {
         AsyncStream { continuation in
             self.audioLevelContinuation = continuation
@@ -152,15 +158,79 @@ final class RealtimeSession: NSObject, TutorSession {
         if isSpeaking { cancelResponse() } // barge-in: holding while it talks interrupts it
         send(["type": "input_audio_buffer.clear"])
         localAudioTrack.isEnabled = true
+        holdStartTime = Date()
         TutorLog.shared.lifecycle("push-to-talk: hold start")
     }
 
+    /// Order (clear -> audio -> commit -> response.create) cross-checked
+    /// against developers.openai.com/api/docs/guides/realtime-conversations
+    /// "Push-to-talk" section (WebRTC variant, steps 1-7) on 2026-07-12: with
+    /// `turn_detection: null` the server does not auto-commit the input
+    /// buffer — commit is manual, which is what this does. No auto-commit
+    /// behavior is documented for the WebRTC transport with VAD off; if the
+    /// server turns out to send an unsolicited `input_audio_buffer.committed`
+    /// before ours, that event is already visible via `TutorLog.shared.
+    /// received`'s generic path, and a redundant manual commit on an
+    /// already-committed buffer is a server `error` event (now surfaced —
+    /// see `TutorLog.logServerError`), not silent corruption — worth
+    /// watching the console for, not worth a state machine at hackathon scope.
     func stopTalking() async {
         guard let localAudioTrack else { return }
         localAudioTrack.isEnabled = false
+        let holdDurationMs = holdStartTime.map { Date().timeIntervalSince($0) * 1000 } ?? 0
+        holdStartTime = nil
+
+        // Robustness (Hugh, device testing, 2026-07-12): a hold shorter than
+        // ~300ms is almost certainly an accidental tap, not real speech.
+        // Committing a near-empty input buffer gets rejected server-side
+        // with an `error` event and the button feels dead (no response ever
+        // arrives). Clear and bail instead of commit + response.create.
+        guard holdDurationMs >= Self.minimumHoldMs else {
+            send(["type": "input_audio_buffer.clear"])
+            TutorLog.shared.info("push-to-talk: hold end -> too short (\(Int(holdDurationMs))ms), skipping commit")
+            return
+        }
+
         send(["type": "input_audio_buffer.commit"])
+        beginLatencyMeasurement()
         send(["type": "response.create"])
         TutorLog.shared.lifecycle("push-to-talk: hold end -> commit + respond")
+    }
+
+    /// Below this, a hold is treated as an accidental tap rather than speech.
+    private static let minimumHoldMs: Double = 300
+
+    // MARK: - Latency instrumentation ("the latency is bad" — measure before
+    // fixing). One exchange = one `response.create` through its `response.done`.
+    // (a) start = this file sending `response.create` in stopTalking(); (b)
+    // first_audio = whichever arrives first of `response.output_audio_
+    // transcript.delta` or `output_audio_buffer.started` (both are legitimate
+    // "the tutor started responding" signals — see the switch in
+    // `handleServerEvent`); (c) total = `response.done`. Deliberately not
+    // reset on barge-in/cancelResponse — a cancelled exchange just never hits
+    // response.done and its start gets overwritten by the next stopTalking(),
+    // so no stale numbers get logged.
+
+    private func beginLatencyMeasurement() {
+        responseStartTime = Date()
+        firstAudioMs = nil
+    }
+
+    private func recordFirstAudioIfNeeded() {
+        guard let start = responseStartTime, firstAudioMs == nil else { return }
+        firstAudioMs = Date().timeIntervalSince(start) * 1000
+    }
+
+    private func finishLatencyMeasurement() {
+        guard let start = responseStartTime else { return }
+        let totalMs = Date().timeIntervalSince(start) * 1000
+        // If no first-audio signal arrived before response.done (text-only
+        // reply, or a signal we don't listen for), fall back to total so the
+        // p50/max tracking isn't skewed by a missing sample.
+        let firstAudio = firstAudioMs ?? totalMs
+        TutorLog.shared.recordLatency(firstAudioMs: firstAudio, totalMs: totalMs)
+        responseStartTime = nil
+        firstAudioMs = nil
     }
 
     /// Sent once, right after connect: server VAD off, full stop. No
@@ -209,19 +279,35 @@ final class RealtimeSession: NSObject, TutorSession {
         send(["type": "output_audio_buffer.clear"])
     }
 
+    /// (Hugh, device testing, 2026-07-12: pressing ✕ while the tutor was
+    /// speaking didn't reliably stop the audio.) Cancel the in-flight
+    /// response and clear whatever's already buffered for playback over the
+    /// data channel BEFORE tearing anything down — once the peer connection
+    /// closes there's no channel left to send these on, and audio already
+    /// queued in the WebRTC audio track can keep playing out past that point.
+    /// Safe to send unconditionally even if nothing was speaking (server
+    /// error events for redundant cancel/clear are already surfaced via
+    /// `TutorLog.logServerError` and are harmless during teardown).
     func endSession() {
         TutorLog.shared.lifecycle("session end")
+        cancelResponse()
         stopStatsTimer()
         dataChannel?.close()
         dataChannel = nil
         peerConnection?.close()
         peerConnection = nil
         localAudioTrack = nil
+        isSpeaking = false
         transcriptContinuation?.finish()
         transcriptContinuation = nil
+        userTranscriptContinuation?.finish()
+        userTranscriptContinuation = nil
         audioLevelContinuation?.finish()
         audioLevelContinuation = nil
         pushedImageItemIDs.removeAll()
+        responseStartTime = nil
+        firstAudioMs = nil
+        holdStartTime = nil
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 
@@ -242,10 +328,22 @@ final class RealtimeSession: NSObject, TutorSession {
     private var dataChannel: RTCDataChannel?
     private var localAudioTrack: RTCAudioTrack?
     private var transcriptContinuation: AsyncStream<String>.Continuation?
+    private var userTranscriptContinuation: AsyncStream<String>.Continuation?
     private var audioLevelContinuation: AsyncStream<Float>.Continuation?
     private var statsTimer: Timer?
     private var pushedImageItemIDs: [String] = []
     private var imageItemCounter = 0
+    /// Wall-clock start of the current hold (push-to-talk), used both for
+    /// the too-short-hold guard in `stopTalking` and has no relation to the
+    /// latency pair below (that one times the exchange, this one times the
+    /// hold itself).
+    private var holdStartTime: Date?
+    /// Wall-clock start of the current response exchange — set in
+    /// `stopTalking` right before sending `response.create`; cleared by
+    /// `finishLatencyMeasurement` on `response.done`. See "Latency
+    /// instrumentation" above.
+    private var responseStartTime: Date?
+    private var firstAudioMs: Double?
 
     /// One long-lived URLSession for the REST calls (Global Constraint —
     /// Clicky's socket-corruption warning against creating a fresh session
@@ -456,19 +554,37 @@ final class RealtimeSession: NSObject, TutorSession {
 
         switch type {
         case "response.output_audio_transcript.delta":
+            recordFirstAudioIfNeeded()
             if let delta = object["delta"] as? String {
                 transcriptContinuation?.yield(delta)
             }
         case "output_audio_buffer.started":
+            recordFirstAudioIfNeeded()
             isSpeaking = true
         case "output_audio_buffer.stopped", "output_audio_buffer.cleared":
             isSpeaking = false
+        case "response.done":
+            finishLatencyMeasurement()
+        case "conversation.item.input_audio_transcription.completed":
+            // Event shape verified against developers.openai.com/api/docs/
+            // guides/realtime-transcription (2026-07-12): {item_id,
+            // content_index, transcript}. Deliberately not consuming the
+            // sibling `.delta` event here — the low-opacity "you: ..." line
+            // (VoiceBarView) replaces per completed utterance rather than
+            // streaming word-by-word, so completed-only is enough; `.delta`
+            // still arrives on the wire (transcription is enabled
+            // session-wide) and is sampled/logged generically by
+            // `TutorLog.received`.
+            if let transcript = object["transcript"] as? String {
+                userTranscriptContinuation?.yield(transcript)
+                TutorLog.shared.info("student said: \(transcript)")
+            }
         default:
-            // input_audio_buffer.speech_started (barge-in) and response
-            // lifecycle events (response.created/response.done) are noted
-            // but unused here — WebRTC's server-side VAD already auto-
-            // truncates playback; cancelling pending tag animations on
-            // barge-in is Task 9's job against this same event stream.
+            // input_audio_buffer.speech_started (barge-in) and
+            // response.created are noted but unused here — WebRTC's
+            // server-side VAD already auto-truncates playback; cancelling
+            // pending tag animations on barge-in is Task 9's job against
+            // this same event stream.
             break
         }
     }

@@ -11,35 +11,39 @@ Nothing is decided until Hugh says it is.
 |---|---|---|
 | 1 | **Problem & solution** — who, what, why, and what we're *not* building | ✅ done — `docs/01-problem.md` |
 | 2 | **Research** — competitors, architectures, tools, how to be a good tutor | ✅ done — `docs/02-competitors.md`, `docs/03-stack.md`, `docs/research/` |
-| 3 | **Feature list** — "it can do X." No architecture. | 🔵 **HERE.** `docs/04-mvp.md`, awaiting Hugh's confirm/cut |
-| 4 | **Architecture** — components, and the tradeoffs weighed for each | ⬜ blocked on 3 |
-| 5 | **Hugh explains it back** — the product, the constraints, and *why*, in his own words | ⬜ blocked on 4 |
-| 6 | **Build** | ⬜ blocked on 5 |
+| 3 | **Feature list** — "it can do X." No architecture. | ✅ done — `docs/04-mvp.md`, `features.md` |
+| 4 | **Architecture** — components, and the tradeoffs weighed for each | ✅ done — `docs/05-architecture.md`; D1–D4 decided in `features.md` |
+| 5 | **Hugh explains it back** — the product, the constraints, and *why*, in his own words | ✅ passed (build proceeding on Hugh's direction) |
+| 6 | **Build** | 🔵 **HERE.** Checklist: `features.md`. F1–F4 code landed; boxes tick when demo'd on iPad |
 | 7 | **Record & post** | ⬜ blocked on 6 |
 
 ---
 
-## Gate 3 — feature list (current)
+## Gate 6 — build (current)
 
-**Goal:** an agreed list of *capabilities*, in plain language. What the student can do. What
-the tutor can do. What we are explicitly not doing.
+Riskiest first, per the `features.md` build order. What's landed on `plan-ai-tutor-demo`:
 
-**Not in scope for this gate:** how any of it works. No components, no data formats, no tool
-schemas, no libraries. That's gate 4.
+- **F1 voice** — Realtime (gpt-realtime-2.1) over WebRTC, hold-to-talk (no VAD), token mint via CF Worker, tag parser
+- **F2 marks** — mark registry (stroke clustering → stable IDs), annotation renderer, glyph library
+- **F3 tutor page** — TutorWriter: animated handwritten math (CAShapeLayer path, D3 = a)
+- **F4 chrome** — worksheet canvas, voice bar v2 (real-audio waveform), guardrails prompt
 
-**Done when:** every line in `docs/04-mvp.md` is confirmed or cut, and the four open scope
-decisions are made.
+**In flight (uncommitted):** latency instrumentation + student-speech transcript ("you: …" line)
+across `RealtimeSession.swift`, `TutorSession.swift`, `worker/src/index.ts`.
 
-## Gate 4 — architecture (next)
+**Boxes in `features.md` tick when demonstrated on the iPad, not when the code exists.**
 
-**Goal:** name the components and the boundaries between them. **For each one, weigh the
-tradeoff out loud** — the option we picked, the options we didn't, and what it costs.
+---
 
-`docs/03-stack.md` holds *candidate* tools and a recommendation. **It is a proposal, not a
-decision.** Re-open all of it here.
+## Gate 3 — feature list (done)
 
-**Done when:** Hugh can name every component, say what it does, and say what we gave up to
-get it.
+Agreed capabilities in plain language, `docs/04-mvp.md` + `features.md`. F4b (gesture
+classifier) cut.
+
+## Gate 4 — architecture (done)
+
+Components and boundaries in `docs/05-architecture.md`. Decisions D1–D4 in `features.md`:
+D1 = gpt-realtime, D2 = live device test (offline harness cut), D3 = CAShapeLayer, D4 = stretch.
 
 ## Gate 5 — explain it back
 

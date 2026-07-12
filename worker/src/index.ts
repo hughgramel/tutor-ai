@@ -54,7 +54,22 @@ async function mintRealtimeToken(env: Env): Promise<Response> {
         type: "realtime",
         model: "gpt-realtime-2.1",
         instructions: INSTRUCTIONS,
-        audio: { output: { voice: "cedar" } },  // male; was marin
+        audio: {
+          output: { voice: "cedar" },  // male; was marin
+          // Student speech transcript (low-opacity "you: ..." line, see
+          // VoiceBarView). Field shape verified against developers.openai.com/
+          // api/reference (RealtimeSessionCreateResponse, session.audio.input.
+          // transcription = { language, model, prompt }) on 2026-07-12 —
+          // mirrors the existing session.audio.input.turn_detection/
+          // noise_reduction pattern above it. Model choice: gpt-realtime-whisper
+          // is the realtime guide's recommended pick ("Transcribe live audio
+          // into streaming text → gpt-realtime-whisper", developers.openai.com/
+          // api/docs/guides/realtime) — natively streaming, lower latency than
+          // gpt-4o-mini-transcribe/whisper-1, and explicitly supported inside
+          // type:"realtime" voice-agent sessions (not just standalone
+          // transcription sessions).
+          input: { transcription: { model: "gpt-realtime-whisper" } },
+        },
       },
     }),
   });

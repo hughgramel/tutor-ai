@@ -47,12 +47,35 @@ final class TutorLog {
         return _sessionTokens
     }
 
+    /// Running p50/max over every completed exchange this session (one
+    /// exchange = one `response.create` -> `response.done`, timed in
+    /// `RealtimeSession`). "the latency is bad" — Hugh, 2026-07-12 — this is
+    /// the measure-first half of that; nothing here fixes latency, it just
+    /// makes it visible. `first_audio` is when the tutor's response first
+    /// became audible/streaming (perceived latency); `total` is full
+    /// response completion.
+    var latencySummary: String {
+        lock.lock(); defer { lock.unlock() }
+        guard !totalLatenciesMs.isEmpty else { return "no exchanges yet" }
+        return String(
+            format: "first_audio p50=%.0fms max=%.0fms | total p50=%.0fms max=%.0fms (n=%d)",
+            percentile50(firstAudioLatenciesMs), firstAudioLatenciesMs.last ?? 0,
+            percentile50(totalLatenciesMs), totalLatenciesMs.last ?? 0,
+            totalLatenciesMs.count
+        )
+    }
+
     private let logger = Logger(subsystem: "com.tutorai.inktutor", category: "realtime")
     private let lock = NSLock()
     private var buffer: [Entry] = []
     private var _sessionCost: Double = 0
     private var _sessionTokens = SessionTokenTotals()
     private var transcriptDeltaCount = 0
+    // Kept sorted ascending on insert, so `.last` is the running max and the
+    // midpoint index is the running p50 — simple array is fine at demo scale
+    // (a handful to a few dozen exchanges per session, not thousands).
+    private var firstAudioLatenciesMs: [Double] = []
+    private var totalLatenciesMs: [Double] = []
 
     // ponytail: ring buffer capped at 200 entries. This is a live debug
     // aid, not an audit trail — oldest lines just fall off.
@@ -90,7 +113,13 @@ final class TutorLog {
     /// Call for every data-channel RECEIVE, before any app-level handling.
     /// `raw` is the fully decoded JSON object for that event.
     func received(type: String, raw: [String: Any]) {
-        if type.hasSuffix("transcript.delta") {
+        // "conversation.item.input_audio_transcription.delta" (student
+        // speech, streamed while transcription is enabled session-wide)
+        // doesn't share the "transcript.delta" suffix of the tutor's own
+        // "response.output_audio_transcript.delta" — matched explicitly so
+        // it gets the same high-frequency sampling instead of flooding the
+        // log on every partial word.
+        if type.hasSuffix("transcript.delta") || type == "conversation.item.input_audio_transcription.delta" {
             recordTranscriptDelta(type: type)
             return
         }
@@ -100,6 +129,10 @@ final class TutorLog {
         }
         if type == "response.done" {
             recordResponseDone(raw: raw)
+            return
+        }
+        if type == "error" {
+            logServerError(raw: raw)
             return
         }
         info("recv \(type)\(summarize(raw))")
@@ -114,6 +147,23 @@ final class TutorLog {
         lock.unlock()
         guard count % transcriptSampleRate == 0 else { return }
         info("recv \(type) (aggregate: \(count) deltas this session)")
+    }
+
+    // MARK: - Server errors (always logged in full, at error level —
+    // Hugh, device testing, 2026-07-12: if hold/commit fails server-side we
+    // need it visible in the console, not folded into the generic `info`
+    // path where a real failure looks identical to routine chatter.)
+
+    private func logServerError(raw: [String: Any]) {
+        guard let errorObj = raw["error"] as? [String: Any] else {
+            error("recv error (unrecognized shape): \(compactJSON(raw))")
+            return
+        }
+        let message = errorObj["message"] as? String ?? "(no message)"
+        let errorType = errorObj["type"] as? String ?? "unknown"
+        let code = errorObj["code"] as? String ?? "none"
+        let eventId = raw["event_id"] as? String ?? "none"
+        error("recv error [type=\(errorType) code=\(code) event_id=\(eventId)]: \(message)")
     }
 
     // MARK: - Tool calls (logged in full — never truncated/summarized)
@@ -198,6 +248,33 @@ final class TutorLog {
             inText, inAudio, inImage, inCachedTotal, outText, outAudio, cost, runningCost
         )
         info(line)
+    }
+
+    // MARK: - Latency tracking (called by RealtimeSession.finishLatencyMeasurement)
+
+    /// One call per completed exchange. Logs the per-exchange line the task
+    /// asked for, then folds both samples into the running p50/max exposed
+    /// via `latencySummary`.
+    func recordLatency(firstAudioMs: Double, totalMs: Double) {
+        lock.lock()
+        insertSorted(&firstAudioLatenciesMs, firstAudioMs)
+        insertSorted(&totalLatenciesMs, totalMs)
+        lock.unlock()
+        info(String(format: "latency: first_audio=%.0fms total=%.0fms", firstAudioMs, totalMs))
+    }
+
+    private func insertSorted(_ array: inout [Double], _ value: Double) {
+        let index = array.firstIndex(where: { $0 > value }) ?? array.count
+        array.insert(value, at: index)
+    }
+
+    private func percentile50(_ sorted: [Double]) -> Double {
+        guard !sorted.isEmpty else { return 0 }
+        let mid = sorted.count / 2
+        if sorted.count.isMultiple(of: 2) {
+            return (sorted[mid - 1] + sorted[mid]) / 2
+        }
+        return sorted[mid]
     }
 
     // MARK: - Helpers

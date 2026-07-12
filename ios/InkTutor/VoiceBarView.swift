@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// Top-right voice chrome. Tap the idle "Ask AI" box to connect (server VAD
 /// off — push-to-talk, for the life of the session). The box collapses into
@@ -24,6 +25,10 @@ struct VoiceBarView: View {
     @State private var connection: ConnectionState = .idle
     @State private var subtitleLines: [String] = []
     @State private var currentLine: String = ""
+    /// Student's last completed utterance, from `session.userTranscript` —
+    /// the low-opacity "you: ..." line below the tutor's subtitle box.
+    /// Replaced (not appended) on every completed transcription.
+    @State private var studentTranscript: String = ""
     @Namespace private var glassNamespace
 
     /// Real amplitude bars, driven by `session.audioLevel` (2026-07-12
@@ -37,8 +42,19 @@ struct VoiceBarView: View {
 
     /// Whether the pill is currently being held (mic live).
     @State private var isHolding = false
+    /// True between `endHold()` (release) and the tutor's first audio —
+    /// drives the pill's brief "…" state so release doesn't feel dead while
+    /// waiting on the model. Cleared by the first transcript delta (the
+    /// same signal `RealtimeSession` uses for its own first-audio timing).
+    @State private var isThinking = false
 
     private var isConnected: Bool { connection == .live || connection == .connecting }
+
+    private var pillCaption: String? {
+        if isHolding { return "listening" }
+        if isThinking { return "…" }
+        return nil
+    }
 
     var body: some View {
         VStack(alignment: .trailing, spacing: 10) {
@@ -47,9 +63,23 @@ struct VoiceBarView: View {
                     .transition(.opacity.combined(with: .move(edge: .top)))
             }
 
+            if isConnected && !studentTranscript.isEmpty {
+                studentTranscriptLine
+                    .transition(.opacity)
+            }
+
+            if let pillCaption {
+                Text(pillCaption)
+                    .font(.system(size: 11, weight: .medium, design: .rounded))
+                    .foregroundStyle(.secondary)
+                    .transition(.opacity)
+            }
+
             morphingChrome
         }
         .animation(.spring(response: 0.35, dampingFraction: 0.8), value: connection)
+        .animation(.easeInOut(duration: 0.2), value: studentTranscript)
+        .animation(.easeInOut(duration: 0.15), value: pillCaption)
     }
 
     // MARK: - Morph container
@@ -66,7 +96,11 @@ struct VoiceBarView: View {
             case .idle, .error:
                 idleBox
             case .connecting, .live:
-                HStack(spacing: 8) {
+                // Spacing widened 8 -> 10 (Hugh, device testing, 2026-07-12:
+                // ✕ wasn't reliably closing the session) — extra separation
+                // from the pill's touch area, on top of the closeButton hit
+                // target fix below.
+                HStack(spacing: 10) {
                     waveformPill
                     closeButton
                 }
@@ -123,11 +157,21 @@ struct VoiceBarView: View {
     /// No `Button` here — `onLongPressGesture(minimumDuration: 0.01, ...)`
     /// is used purely for its `onPressingChanged` press-down/press-up
     /// edges, which map directly onto hold-to-talk start/stop.
+    ///
+    /// `maximumDistance: 60` bounds how far a touch can wander *within this
+    /// gesture* before it cancels — it does not extend this view's hit-test
+    /// area into `closeButton`'s territory (that's `.contentShape`, already
+    /// scoped to this view's own 56x32 + padding frame). Widened the ✕'s tap
+    /// target and the HStack spacing anyway as extra margin (device
+    /// testing, 2026-07-12) since the two sit only a few points apart.
     private var waveformPill: some View {
         HStack(spacing: 3) {
             ForEach(Array(barLevels.enumerated()), id: \.offset) { _, level in
                 Capsule()
-                    .fill(.primary.opacity(0.8))
+                    // Red while holding — an unmistakable "you're live"
+                    // signal (Hugh, device testing, 2026-07-12: hold state
+                    // wasn't clearly readable before).
+                    .fill(isHolding ? Color.red.opacity(0.85) : .primary.opacity(0.8))
                     .frame(width: 2.5, height: barHeight(for: level))
             }
         }
@@ -138,7 +182,7 @@ struct VoiceBarView: View {
         .glassBackground(cornerRadius: 22)
         .voiceGlassID(in: glassNamespace)
         .opacity(connection == .connecting ? 0.55 : 1.0)
-        .scaleEffect(isHolding ? 1.04 : (connection == .connecting ? 0.97 : 1.0))
+        .scaleEffect(isHolding ? 1.12 : (connection == .connecting ? 0.97 : 1.0))
         .animation(
             connection == .connecting
                 ? .easeInOut(duration: 0.8).repeatForever(autoreverses: true)
@@ -153,6 +197,9 @@ struct VoiceBarView: View {
 
     // MARK: - Close button
 
+    /// Visible glass chip stays 32x32 (unchanged look); the tappable area
+    /// is padded out to 44x44 to clear Apple's HIG minimum touch target
+    /// (Hugh, device testing, 2026-07-12: ✕ wasn't reliably registering).
     private var closeButton: some View {
         Button(action: handleClose) {
             Image(systemName: "xmark")
@@ -162,6 +209,8 @@ struct VoiceBarView: View {
         }
         .buttonStyle(.plain)
         .glassBackground(cornerRadius: 16)
+        .frame(width: 44, height: 44)
+        .contentShape(Rectangle())
     }
 
     private func barHeight(for level: CGFloat) -> CGFloat {
@@ -197,6 +246,25 @@ struct VoiceBarView: View {
         }
     }
 
+    // MARK: - Student transcript ("we need low opacity chat showing what
+    // the student was saying below it" — Hugh, 2026-07-12)
+
+    /// Deliberately no glass background/padding box — "keep it minimal": a
+    /// single low-opacity line, right-aligned under the subtitle box, same
+    /// max width, truncating middle so long utterances still show start and
+    /// end rather than just a cut-off beginning.
+    private var studentTranscriptLine: some View {
+        Text("you: \(studentTranscript)")
+            .font(.system(size: 12, weight: .regular, design: .default).italic())
+            .foregroundStyle(.primary)
+            .opacity(0.45)
+            .lineLimit(1)
+            .truncationMode(.middle)
+            .multilineTextAlignment(.trailing)
+            .frame(maxWidth: 260, alignment: .trailing)
+            .padding(.horizontal, 14)
+    }
+
     // MARK: - Connection lifecycle
 
     private func connect() {
@@ -204,6 +272,7 @@ struct VoiceBarView: View {
         connection = .connecting
         subtitleLines = []
         currentLine = ""
+        studentTranscript = ""
         resetWaveform()
         resetGestureState()
         Task {
@@ -211,6 +280,7 @@ struct VoiceBarView: View {
                 try await session.connect()
                 await MainActor.run { connection = .live }
                 Task { await streamAudioLevels() }
+                Task { await streamUserTranscript() }
                 await streamTranscript()
             } catch {
                 await MainActor.run {
@@ -233,6 +303,7 @@ struct VoiceBarView: View {
 
     private func resetGestureState() {
         isHolding = false
+        isThinking = false
     }
 
     // MARK: - Pill gesture: hold-to-talk
@@ -250,15 +321,27 @@ struct VoiceBarView: View {
         }
     }
 
+    /// Haptics (Hugh, device testing, 2026-07-12: hold state wasn't clearly
+    /// felt/seen) — `.medium` on hold-start reads as "grabbed the mic",
+    /// `.light` on release as a softer hand-off. `UIImpactFeedbackGenerator`
+    /// prepares lazily on first use; not worth pre-warming for a push-to-talk
+    /// button that isn't latency-critical the way the model round-trip is.
     private func beginHold() {
         guard !isHolding else { return }
         isHolding = true
+        isThinking = false
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         Task { await session.startTalking() }
     }
 
     private func endHold() {
         guard isHolding else { return }
         isHolding = false
+        // "…" thinking state until the first tutor transcript delta arrives
+        // (cleared in `appendTranscriptDelta`) — makes release feel alive
+        // instead of dead-looking during the round-trip to first audio.
+        isThinking = true
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
         Task { await session.stopTalking() }
     }
 
@@ -282,6 +365,7 @@ struct VoiceBarView: View {
     }
 
     private func appendTranscriptDelta(_ delta: String) {
+        isThinking = false  // first sign of the tutor's response — see endHold()
         currentLine += delta
         // A line break lands whenever the delta contains sentence-ending
         // punctuation followed by a space -- good enough for subtitle
@@ -291,6 +375,20 @@ struct VoiceBarView: View {
             currentLine = ""
             if subtitleLines.count > 12 {
                 subtitleLines.removeFirst(subtitleLines.count - 12)
+            }
+        }
+    }
+
+    // MARK: - Student transcript stream
+
+    /// Consumes `session.userTranscript` for the life of one connection —
+    /// same finish-on-`endSession()` shape as `streamAudioLevels`/
+    /// `streamTranscript` below, so this loop ends on its own with no extra
+    /// teardown code needed here.
+    private func streamUserTranscript() async {
+        for await utterance in session.userTranscript {
+            await MainActor.run {
+                studentTranscript = utterance
             }
         }
     }
@@ -384,6 +482,7 @@ private final class PreviewTutorSession: TutorSession {
     var isSpeaking: Bool = false
     var isConnected: Bool = false
     var transcriptDeltas: AsyncStream<String> { AsyncStream { _ in } }
+    var userTranscript: AsyncStream<String> { AsyncStream { _ in } }
     var audioLevel: AsyncStream<Float> { AsyncStream { _ in } }
     func connect() async throws {}
     func pushImage(_ jpeg: Data) async {}
