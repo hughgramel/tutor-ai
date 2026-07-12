@@ -8,3 +8,7 @@ DerivedData/
 # Secrets — never commit
 .dev.vars
 .env
+
+# MathWriting dataset excerpt (7MB, regenerate via tools/glyphs/extract_glyphs.py)
+tools/glyphs/mathwriting-2024-excerpt.tgz
+tools/glyphs/mathwriting-2024-excerpt/

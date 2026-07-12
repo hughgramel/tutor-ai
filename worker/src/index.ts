@@ -54,7 +54,7 @@ async function mintRealtimeToken(env: Env): Promise<Response> {
         type: "realtime",
         model: "gpt-realtime-2.1",
         instructions: INSTRUCTIONS,
-        audio: { output: { voice: "marin" } },
+        audio: { output: { voice: "cedar" } },  // male; was marin
       },
     }),
   });

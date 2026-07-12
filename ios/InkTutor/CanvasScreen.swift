@@ -46,7 +46,9 @@ struct CanvasScreen: View {
                 TutorPagePopup(page: tutorPage, pageSize: Self.pageSize, isPresented: $showTutorPage)
             }
         }
-        .onAppear(perform: loadAssignmentPDF)
+        // PDF underlay disabled for now (Hugh, 2026-07-12): blank canvas, tutor
+        // reads the ink alone. Re-enable by restoring this call.
+        // .onAppear(perform: loadAssignmentPDF)
     }
 
     /// Renders page 1 of the bundled worksheet into `studentPage.pdfImage`.
