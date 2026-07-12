@@ -10,6 +10,7 @@
 		05A01214619121DDFC3D9775 /* TutorSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FD8EE9DD8ABC6D38EAAB09A /* TutorSession.swift */; };
 		0639B1DDF9A8D95C367EAA1F /* MarkRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C8E6D28DFEF18F60EA452E3 /* MarkRegistry.swift */; };
 		2023850D6F4E2FCFD177708B /* Glyphs.generated.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4820CB321413562DEE8DDF1F /* Glyphs.generated.swift */; };
+		2056F5EC2730DD9D6C533665 /* TutorCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 179C5278DA23CB59F9A16EC3 /* TutorCoordinator.swift */; };
 		3052D8FB174DBE26F0A826CF /* TagParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = D196AF68BEE8C2465A595D25 /* TagParser.swift */; };
 		373CB24A59246494E3C9D2BC /* TutorWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 185DBF7713BBF1DB3F647771 /* TutorWriter.swift */; };
 		38F9BE32A659E49F85211289 /* CanvasScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D8A2F6E513737A88D93FB9C /* CanvasScreen.swift */; };
@@ -17,6 +18,7 @@
 		4BFF8C72615C8C772A845DED /* Problems.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BFA4FA8256279B9013AFF2F /* Problems.swift */; };
 		511147B0E421F4BA44E84130 /* TagParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD7C4670EEF4DEFD9210D6BC /* TagParserTests.swift */; };
 		5D679BEBDAA0C3EDF4679DB4 /* Snapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D5BC5008BAB4F838B9A10E5 /* Snapshot.swift */; };
+		6BB65BAB175A0845D6E31F97 /* TutorCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E60802D0720C666C6E70F543 /* TutorCoordinatorTests.swift */; };
 		6C5D2B600D4C6862F5967DEE /* AnnotationOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5663BAFA5DF124EA03FC950 /* AnnotationOverlayView.swift */; };
 		731AC6B6EE8ADFDD39BF6773 /* MarkRegistryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB2122238A680F792BB5C8B2 /* MarkRegistryTests.swift */; };
 		762A1C26DDFA516824068412 /* assignment.pdf in Resources */ = {isa = PBXBuildFile; fileRef = 637A7394525D3B9DF4BF8288 /* assignment.pdf */; };
@@ -48,6 +50,7 @@
 /* Begin PBXFileReference section */
 		0FD8EE9DD8ABC6D38EAAB09A /* TutorSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TutorSession.swift; sourceTree = "<group>"; };
 		173B6CA5575873348E765E1E /* InkTutorApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InkTutorApp.swift; sourceTree = "<group>"; };
+		179C5278DA23CB59F9A16EC3 /* TutorCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TutorCoordinator.swift; sourceTree = "<group>"; };
 		185DBF7713BBF1DB3F647771 /* TutorWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TutorWriter.swift; sourceTree = "<group>"; };
 		4820CB321413562DEE8DDF1F /* Glyphs.generated.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Glyphs.generated.swift; sourceTree = "<group>"; };
 		483F622626E09F2F5B1CBB50 /* PageModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PageModel.swift; sourceTree = "<group>"; };
@@ -69,6 +72,7 @@
 		D196AF68BEE8C2465A595D25 /* TagParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagParser.swift; sourceTree = "<group>"; };
 		D5663BAFA5DF124EA03FC950 /* AnnotationOverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnnotationOverlayView.swift; sourceTree = "<group>"; };
 		E2ADF9C29B4AADB88A787555 /* worksheet-equations-word-problems.pdf */ = {isa = PBXFileReference; lastKnownFileType = image.pdf; path = "worksheet-equations-word-problems.pdf"; sourceTree = "<group>"; };
+		E60802D0720C666C6E70F543 /* TutorCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TutorCoordinatorTests.swift; sourceTree = "<group>"; };
 		F7B5C3F12C01BFE47F2C00E9 /* InkTutorTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = InkTutorTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		FB2122238A680F792BB5C8B2 /* MarkRegistryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkRegistryTests.swift; sourceTree = "<group>"; };
 		FD7C4670EEF4DEFD9210D6BC /* TagParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagParserTests.swift; sourceTree = "<group>"; };
@@ -111,6 +115,7 @@
 				6266234957DDEE9D4EE9D5AE /* RealtimeSession.swift */,
 				4D5BC5008BAB4F838B9A10E5 /* Snapshot.swift */,
 				D196AF68BEE8C2465A595D25 /* TagParser.swift */,
+				179C5278DA23CB59F9A16EC3 /* TutorCoordinator.swift */,
 				89F69BBA8C8E4B46B99F469E /* TutorLog.swift */,
 				0FD8EE9DD8ABC6D38EAAB09A /* TutorSession.swift */,
 				185DBF7713BBF1DB3F647771 /* TutorWriter.swift */,
@@ -128,6 +133,7 @@
 				657295A3C4B7C4D0ED19F627 /* PlaceholderTests.swift */,
 				50BCDD75EB177C5B15EAA3B5 /* SnapshotTransformTests.swift */,
 				FD7C4670EEF4DEFD9210D6BC /* TagParserTests.swift */,
+				E60802D0720C666C6E70F543 /* TutorCoordinatorTests.swift */,
 				773410DD75622CCDAD81D8FA /* TutorWriterTests.swift */,
 			);
 			path = InkTutorTests;
@@ -254,6 +260,7 @@
 				433E67C39E7330CA330EE7BA /* PlaceholderTests.swift in Sources */,
 				DEC87AD64D75BC4AF4C3C9C6 /* SnapshotTransformTests.swift in Sources */,
 				511147B0E421F4BA44E84130 /* TagParserTests.swift in Sources */,
+				6BB65BAB175A0845D6E31F97 /* TutorCoordinatorTests.swift in Sources */,
 				FD900F3D04655AD9D5144B26 /* TutorWriterTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -274,6 +281,7 @@
 				AF7EED1F8A85198477B4C374 /* RealtimeSession.swift in Sources */,
 				5D679BEBDAA0C3EDF4679DB4 /* Snapshot.swift in Sources */,
 				3052D8FB174DBE26F0A826CF /* TagParser.swift in Sources */,
+				2056F5EC2730DD9D6C533665 /* TutorCoordinator.swift in Sources */,
 				A1CA8E047C79B7341D79CA6A /* TutorLog.swift in Sources */,
 				05A01214619121DDFC3D9775 /* TutorSession.swift in Sources */,
 				373CB24A59246494E3C9D2BC /* TutorWriter.swift in Sources */,

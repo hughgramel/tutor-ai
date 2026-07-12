@@ -214,6 +214,10 @@ final class RealtimeSession: NSObject, TutorSession {
     private func beginLatencyMeasurement() {
         responseStartTime = Date()
         firstAudioMs = nil
+        // Addendum (2026-07-12): reset the pace-calibration accumulators for
+        // this response too — see "Speech pace calibration" below.
+        audioStartTime = nil
+        responseCharCount = 0
     }
 
     private func recordFirstAudioIfNeeded() {
@@ -231,6 +235,26 @@ final class RealtimeSession: NSObject, TutorSession {
         TutorLog.shared.recordLatency(firstAudioMs: firstAudio, totalMs: totalMs)
         responseStartTime = nil
         firstAudioMs = nil
+    }
+
+    // MARK: - Speech pace calibration (addendum, 2026-07-12: "the subtitle
+    // must track what's ACTUALLY being spoken" — VoiceBarView's word-paced
+    // subtitle reveal used a fixed 45ms/char guess. The Realtime API doesn't
+    // emit per-word playback timestamps, so exact sync isn't available —
+    // this instead measures each completed response's real audio duration
+    // (`output_audio_buffer.started` -> `.stopped`) against its transcript
+    // character count, and hands the resulting ms/char to `TutorLog` so the
+    // NEXT response's reveal pace is calibrated off the last one. Not
+    // recorded on `.cleared` (barge-in) — a truncated playback duration
+    // paired with the full transcript length would understate the pace.
+
+    private var audioStartTime: Date?
+    private var responseCharCount: Int = 0
+
+    private func recordSpeechPaceIfPossible() {
+        guard let start = audioStartTime else { return }
+        let durationMs = Date().timeIntervalSince(start) * 1000
+        TutorLog.shared.recordSpeechPace(audioDurationMs: durationMs, transcriptCharCount: responseCharCount)
     }
 
     /// Sent once, right after connect: server VAD off, full stop. No
@@ -308,6 +332,8 @@ final class RealtimeSession: NSObject, TutorSession {
         responseStartTime = nil
         firstAudioMs = nil
         holdStartTime = nil
+        audioStartTime = nil
+        responseCharCount = 0
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 
@@ -557,12 +583,22 @@ final class RealtimeSession: NSObject, TutorSession {
             recordFirstAudioIfNeeded()
             if let delta = object["delta"] as? String {
                 transcriptContinuation?.yield(delta)
+                responseCharCount += delta.count
             }
         case "output_audio_buffer.started":
             recordFirstAudioIfNeeded()
             isSpeaking = true
-        case "output_audio_buffer.stopped", "output_audio_buffer.cleared":
+            if audioStartTime == nil { audioStartTime = Date() }
+        case "output_audio_buffer.stopped":
             isSpeaking = false
+            recordSpeechPaceIfPossible()
+            audioStartTime = nil
+        case "output_audio_buffer.cleared":
+            // Barge-in cut this response's audio short — not a valid pace
+            // sample (duration would be truncated relative to the full
+            // transcript already accumulated), so skip calibration here.
+            isSpeaking = false
+            audioStartTime = nil
         case "response.done":
             finishLatencyMeasurement()
         case "conversation.item.input_audio_transcription.completed":

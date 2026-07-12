@@ -21,15 +21,41 @@ import UIKit
 /// SDK here is iOS 26 so we take the real material when we can get it).
 struct VoiceBarView: View {
     let session: TutorSession
+    /// Wiring Step 5: the screen's one `TutorCoordinator` — its
+    /// `subtitleStream` (tag-stripped) replaces `session.transcriptDeltas`
+    /// as this view's transcript source, and `start()` begins consuming
+    /// `session.transcriptDeltas` on the coordinator's side the moment the
+    /// connection goes live.
+    let coordinator: TutorCoordinator
 
     @State private var connection: ConnectionState = .idle
-    @State private var subtitleLines: [String] = []
+    /// Full conversation history this session — tutor lines (completed
+    /// sentences from the reveal loop) interleaved with the student's
+    /// completed utterances, oldest first. Compact mode shows only the
+    /// tutor's own lines (`tutorLines`, same look as before this addendum);
+    /// expanded mode shows all of it. A tiny `{role, text}` struct instead
+    /// of two parallel arrays, since ordering across roles now matters.
+    @State private var chatHistory: [ChatLine] = []
     @State private var currentLine: String = ""
     /// Student's last completed utterance, from `session.userTranscript` —
     /// the low-opacity "you: ..." line below the tutor's subtitle box.
-    /// Replaced (not appended) on every completed transcription.
+    /// Replaced (not appended) on every completed transcription; also fed
+    /// into `chatHistory` (unchanged role in the full-history view).
     @State private var studentTranscript: String = ""
+    /// Tap-to-expand state for the subtitle box (addendum, 2026-07-12).
+    @State private var isExpanded = false
+    /// Set by a drag inside either scroll view; cleared when a new tutor
+    /// response starts (`endHold()`) or the box is toggled — "don't yank
+    /// the user back down after they've scrolled up, until the next
+    /// response starts or they scroll back" (a real scroll-position read
+    /// isn't needed for that rule, just this one flag).
+    @State private var userScrolledAway = false
     @Namespace private var glassNamespace
+
+    private static let bottomAnchorID = "subtitle-bottom"
+    private static let chatHistoryCap = 100
+
+    private var tutorLines: [ChatLine] { chatHistory.filter { $0.role == .tutor } }
 
     /// Real amplitude bars, driven by `session.audioLevel` (2026-07-12
     /// upgrade — replaces the earlier timer-driven fake waveform). A fixed-
@@ -72,17 +98,20 @@ struct VoiceBarView: View {
                 .frame(height: 14)
                 .opacity(pillCaption == nil ? 0 : 1)
 
-            if isConnected && (!subtitleLines.isEmpty || !currentLine.isEmpty) {
-                subtitleBox
+            if isConnected && (!chatHistory.isEmpty || !currentLine.isEmpty) {
+                subtitleContainer
                     .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
 
-            if isConnected && !studentTranscript.isEmpty {
+            // Redundant with the expanded panel's own interleaved student
+            // lines, so only shown in compact mode.
+            if isConnected && !studentTranscript.isEmpty && !isExpanded {
                 studentTranscriptLine
                     .transition(.opacity)
             }
         }
         .animation(.spring(response: 0.35, dampingFraction: 0.8), value: connection)
+        .animation(.spring(response: 0.35, dampingFraction: 0.8), value: isExpanded)
         .animation(.easeInOut(duration: 0.2), value: studentTranscript)
         .animation(.easeInOut(duration: 0.15), value: pillCaption)
     }
@@ -246,39 +275,142 @@ struct VoiceBarView: View {
         return minHeight + clamped * (maxHeight - minHeight)
     }
 
-    // MARK: - Subtitles
+    // MARK: - Subtitles (compact ⇄ expanded, addendum 2026-07-12)
 
-    /// Completed lines dim; `currentLine` — the words being spoken RIGHT NOW,
-    /// revealed word-by-word at speech pace — is always visible and full-
-    /// opacity, so the box tracks exactly where the voice is (Hugh,
-    /// 2026-07-12: "make sure we're tracking what's actually being spoken").
+    /// One line of session chat history — either the tutor's (from the
+    /// reveal loop, completed on sentence boundaries) or the student's
+    /// (from `session.userTranscript`, one completed utterance each).
+    private struct ChatLine: Identifiable {
+        enum Role { case tutor, student }
+        let id = UUID()
+        let role: Role
+        let text: String
+    }
+
+    @ViewBuilder
+    private var subtitleContainer: some View {
+        if isExpanded {
+            expandedPanel
+        } else {
+            subtitleBox
+        }
+    }
+
+    /// Compact mode: same footprint/look as before, but now a scrollable
+    /// window (tutor lines only) instead of a fixed last-2-lines slice, so
+    /// the user can scroll back through recent lines without leaving
+    /// compact mode. Tap anywhere to expand into the full-history panel.
     private var subtitleBox: some View {
-        VStack(alignment: .trailing, spacing: 3) {
-            ForEach(Array(subtitleLines.suffix(2).enumerated()), id: \.offset) { index, line in
-                Text(line)
-                    .font(.system(size: 13))
-                    .foregroundStyle(.primary)
-                    .opacity(subtitleOpacity(forDistanceFromEnd: subtitleLines.suffix(2).count - index))
-                    .multilineTextAlignment(.trailing)
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .trailing, spacing: 3) {
+                    ForEach(tutorLines) { line in
+                        Text(line.text)
+                            .font(.system(size: 13))
+                            .foregroundStyle(.primary)
+                            .opacity(0.6)
+                            .multilineTextAlignment(.trailing)
+                    }
+                    if !currentLine.isEmpty {
+                        Text(currentLine)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(.primary)
+                            .multilineTextAlignment(.trailing)
+                    }
+                    Color.clear.frame(height: 1).id(Self.bottomAnchorID)
+                }
+                .simultaneousGesture(DragGesture(minimumDistance: 10).onChanged { _ in userScrolledAway = true })
             }
-            if !currentLine.isEmpty {
-                Text(currentLine)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.primary)
-                    .multilineTextAlignment(.trailing)
-            }
+            .frame(maxHeight: 90)
+            .onChange(of: currentLine) { scrollToBottomIfPinned(proxy) }
+            .onChange(of: tutorLines.count) { scrollToBottomIfPinned(proxy) }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .frame(maxWidth: 260, alignment: .trailing)
         .glassBackground(cornerRadius: 16)
+        .onTapGesture { toggleExpanded() }
     }
 
-    private func subtitleOpacity(forDistanceFromEnd distance: Int) -> Double {
-        switch distance {
-        case 0: return 1.0
-        case 1: return 0.6
-        default: return 0.35
+    /// Expanded mode: the full session history, tutor + student interleaved.
+    /// Grows downward/leftward from below the chrome (chrome itself stays
+    /// put — this is just another item further down the same trailing-
+    /// aligned VStack the compact box already lived in).
+    private var expandedPanel: some View {
+        VStack(alignment: .trailing, spacing: 0) {
+            HStack {
+                Text("Conversation")
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 10)
+            .contentShape(Rectangle())
+            .onTapGesture { toggleExpanded() }
+
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .trailing, spacing: 6) {
+                        ForEach(chatHistory) { line in
+                            chatLineView(line)
+                        }
+                        if !currentLine.isEmpty {
+                            Text(currentLine)
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundStyle(.primary)
+                                .multilineTextAlignment(.trailing)
+                        }
+                        Color.clear.frame(height: 1).id(Self.bottomAnchorID)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .simultaneousGesture(DragGesture(minimumDistance: 10).onChanged { _ in userScrolledAway = true })
+                }
+                .onChange(of: currentLine) { scrollToBottomIfPinned(proxy) }
+                .onChange(of: chatHistory.count) { scrollToBottomIfPinned(proxy) }
+            }
+        }
+        .frame(width: 340, height: min(UIScreen.main.bounds.height * 0.45, 420))
+        .glassBackground(cornerRadius: 18)
+    }
+
+    @ViewBuilder
+    private func chatLineView(_ line: ChatLine) -> some View {
+        switch line.role {
+        case .tutor:
+            Text(line.text)
+                .font(.system(size: 14))
+                .foregroundStyle(.primary)
+                .multilineTextAlignment(.trailing)
+        case .student:
+            Text("you: \(line.text)")
+                .font(.system(size: 13, design: .default).italic())
+                .foregroundStyle(.primary)
+                .opacity(0.55)
+                .multilineTextAlignment(.trailing)
+        }
+    }
+
+    private func toggleExpanded() {
+        isExpanded.toggle()
+        userScrolledAway = false
+    }
+
+    private func scrollToBottomIfPinned(_ proxy: ScrollViewProxy) {
+        guard !userScrolledAway else { return }
+        withAnimation(.easeOut(duration: 0.15)) {
+            proxy.scrollTo(Self.bottomAnchorID, anchor: .bottom)
+        }
+    }
+
+    private func appendChatLine(role: ChatLine.Role, text: String) {
+        chatHistory.append(ChatLine(role: role, text: text))
+        if chatHistory.count > Self.chatHistoryCap {
+            chatHistory.removeFirst(chatHistory.count - Self.chatHistoryCap)
         }
     }
 
@@ -306,9 +438,11 @@ struct VoiceBarView: View {
     private func connect() {
         guard connection == .idle || connection == .error else { return }
         connection = .connecting
-        subtitleLines = []
+        chatHistory = []
         currentLine = ""
         studentTranscript = ""
+        isExpanded = false
+        userScrolledAway = false
         resetWaveform()
         resetGestureState()
         Task {
@@ -316,6 +450,10 @@ struct VoiceBarView: View {
                 try await session.connect()
                 await MainActor.run {
                     connection = .live
+                    // Begin routing session.transcriptDeltas through the
+                    // coordinator's TagParser right away — subtitles below
+                    // read coordinator.subtitleStream, not raw deltas.
+                    coordinator.start()
                     // One-gesture flow: if the finger that initiated this
                     // connect is still down, the hold starts right now —
                     // the "listening" caption tells the user the mic is live.
@@ -341,6 +479,11 @@ struct VoiceBarView: View {
 
     private func disconnect() {
         session.endSession()
+        // Stops the coordinator's transcript-routing loop so a later
+        // reconnect's `coordinator.start()` doesn't no-op (it guards on
+        // `transcriptTask == nil`, which naturally-finished-but-uncancelled
+        // tasks don't satisfy).
+        coordinator.stop()
         connection = .idle
         revealTask?.cancel()
         revealTask = nil
@@ -402,6 +545,10 @@ struct VoiceBarView: View {
         // (cleared in `appendTranscriptDelta`) — makes release feel alive
         // instead of dead-looking during the round-trip to first audio.
         isThinking = true
+        // The next tutor response is about to start — re-pin the subtitle
+        // scroll views to the bottom even if the user had scrolled away
+        // reading the last one.
+        userScrolledAway = false
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
         Task { await session.stopTalking() }
     }
@@ -418,9 +565,14 @@ struct VoiceBarView: View {
     }
 
     private func streamTranscript() async {
-        for await delta in session.transcriptDeltas {
+        // Wiring Step 5: `coordinator.subtitleStream` — not the raw
+        // `session.transcriptDeltas` — is the source here. It's the same
+        // delta-shaped stream (one chunk per underlying delta), just already
+        // run through `TagParser` so `[CIRCLE:7]`-style tags never reach the
+        // subtitle box.
+        for await text in coordinator.subtitleStream {
             await MainActor.run {
-                appendTranscriptDelta(delta)
+                appendTranscriptDelta(text)
             }
         }
     }
@@ -432,11 +584,24 @@ struct VoiceBarView: View {
     // voice (Hugh, 2026-07-12: "make sure we have the word boundary so when
     // it's speaking we know exactly what line it's on"). So deltas land in
     // `pendingSpeech`, and a reveal loop pops one word at a time at roughly
-    // speech pace (Clicky's char-pacing trick, ~45ms/char clamped 90–320ms
-    // per word). When the audio has stopped (`session.isSpeaking == false`)
+    // speech pace. When the audio has stopped (`session.isSpeaking == false`)
     // the remainder flushes fast so the box never lags a finished voice.
     // ponytail: paced estimate, not true audio-timestamp alignment — the
     // Realtime API doesn't emit per-word playback timestamps over WebRTC.
+    //
+    // Addendum (2026-07-12), two refinements on top of the above:
+    // 1. Anchor to audio start — deltas arrive BEFORE playback starts, so
+    //    popping on the very first delta made text lead the voice at the
+    //    start of every response. The loop now waits for
+    //    `session.isSpeaking == true` before popping the first word of a
+    //    response (bounded wait — a response with no audio at all, e.g. a
+    //    hypothetical text-only reply, still drains instead of hanging).
+    // 2. Self-calibrating pace — `TutorLog.shared.lastSpeechPaceMsPerChar`
+    //    (measured from the previous completed response's real audio
+    //    duration vs. transcript length, see `RealtimeSession`) replaces the
+    //    old hardcoded 45ms/char, falling back to 45 until a response has
+    //    completed at least once this app launch. Each response calibrates
+    //    the next.
 
     @State private var pendingSpeech = ""
     @State private var revealTask: Task<Void, Never>?
@@ -450,12 +615,19 @@ struct VoiceBarView: View {
     private func startRevealLoopIfNeeded() {
         guard revealTask == nil else { return }
         revealTask = Task { @MainActor in
+            var waitedMs = 0
+            let maxWaitMs = 2000 // bounded: don't hang forever if audio never starts
+            while !session.isSpeaking && !pendingSpeech.isEmpty && !Task.isCancelled && waitedMs < maxWaitMs {
+                try? await Task.sleep(nanoseconds: 20_000_000)
+                waitedMs += 20
+            }
             while !pendingSpeech.isEmpty && !Task.isCancelled {
                 let word = popNextWord()
                 currentLine += word
                 completeLineIfSentenceEnded(word)
+                let msPerChar = TutorLog.shared.lastSpeechPaceMsPerChar ?? 45
                 let ms = session.isSpeaking
-                    ? min(max(Double(word.count) * 45, 90), 320)
+                    ? min(max(Double(word.count) * msPerChar, 90), 320)
                     : 25 // audio done — drain the rest quickly
                 try? await Task.sleep(nanoseconds: UInt64(ms * 1_000_000))
             }
@@ -478,11 +650,8 @@ struct VoiceBarView: View {
 
     private func completeLineIfSentenceEnded(_ word: String) {
         guard word.contains(where: { ".!?".contains($0) }) else { return }
-        subtitleLines.append(currentLine.trimmingCharacters(in: .whitespaces))
+        appendChatLine(role: .tutor, text: currentLine.trimmingCharacters(in: .whitespaces))
         currentLine = ""
-        if subtitleLines.count > 12 {
-            subtitleLines.removeFirst(subtitleLines.count - 12)
-        }
     }
 
     // MARK: - Student transcript stream
@@ -495,6 +664,7 @@ struct VoiceBarView: View {
         for await utterance in session.userTranscript {
             await MainActor.run {
                 studentTranscript = utterance
+                appendChatLine(role: .student, text: utterance)
             }
         }
     }
@@ -507,7 +677,12 @@ struct VoiceBarView: View {
     private func streamAudioLevels() async {
         for await level in session.audioLevel {
             await MainActor.run {
-                pushLevel(CGFloat(level))
+                // Bars react ONLY while the pill is held (Hugh, 2026-07-12:
+                // no waveform activity while idle or while the tutor talks —
+                // it's a "your voice" meter, not an output visualizer).
+                // Feeding the idle level through the normal attack/decay path
+                // lets active bars settle to flat instead of snapping.
+                pushLevel(isHolding ? CGFloat(level) : Self.idleBarLevel)
             }
         }
     }
@@ -571,17 +746,42 @@ private extension View {
 }
 
 #Preview {
-    ZStack {
-        Color.gray.opacity(0.2).ignoresSafeArea()
-        VStack {
-            HStack {
+    VoiceBarPreviewHost()
+}
+
+/// Wraps the coordinator construction in a `View.body` — `TutorCoordinator`
+/// is `@MainActor`, and `body` is the one place in this file guaranteed to
+/// already be main-actor-isolated (via the `View` protocol requirement),
+/// rather than relying on the `#Preview` macro's own isolation.
+private struct VoiceBarPreviewHost: View {
+    private let session = PreviewTutorSession()
+
+    var body: some View {
+        let coordinator = TutorCoordinator(
+            session: session,
+            studentPage: PageModel(role: .student),
+            tutorPage: PageModel(role: .tutor),
+            pageSize: CGSize(width: 768, height: 1024),
+            performer: PreviewAnnotationPerformer(),
+            openTutorPage: {},
+            writeHandler: { _, _ in }
+        )
+        return ZStack {
+            Color.gray.opacity(0.2).ignoresSafeArea()
+            VStack {
+                HStack {
+                    Spacer()
+                    VoiceBarView(session: session, coordinator: coordinator)
+                }
                 Spacer()
-                VoiceBarView(session: PreviewTutorSession())
             }
-            Spacer()
+            .padding()
         }
-        .padding()
     }
+}
+
+private final class PreviewAnnotationPerformer: AnnotationPerforming {
+    func perform(_ annotation: Annotation, on page: PageModel) {}
 }
 
 private final class PreviewTutorSession: TutorSession {

@@ -16,6 +16,18 @@ struct PageCanvasRepresentable: UIViewRepresentable {
     /// Snapshot pushes (Task 12, student page only for now) — nil for the
     /// tutor's own popup page, which has nothing to push yet.
     var session: TutorSession? = nil
+    /// The coordinator that turns a debounced stroke-end into an enriched
+    /// (labeled + registry JSON) snapshot push — student page only, same
+    /// gate as `session` above (wiring Step 4).
+    var tutorCoordinator: TutorCoordinator? = nil
+    /// Reports the page's `AnnotationOverlayView` once `makeUIView` creates
+    /// it, so `CanvasScreen` can hand it to the `AnnotationPerforming`
+    /// adapter it passes into `TutorCoordinator` (wiring Step 2). Called on
+    /// every page's canvas — annotate actions can land on either page's ink.
+    var onOverlayReady: ((AnnotationOverlayView) -> Void)? = nil
+    /// Reports the page's `TutorWriter` once `makeUIView` creates it —
+    /// tutor page only (wiring Step 3).
+    var onWriterReady: ((TutorWriter) -> Void)? = nil
 
     static var drawingPolicy: PKCanvasViewDrawingPolicy {
         #if targetEnvironment(simulator)
@@ -59,6 +71,32 @@ struct PageCanvasRepresentable: UIViewRepresentable {
         canvasView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         container.addSubview(canvasView)
 
+        // Annotation overlay: sibling ABOVE the canvas (added after it, so it
+        // draws on top), non-interactive, tracked to zoom/scroll the same way
+        // `paperView` is below (`syncUnderlay`/`setZoom`). Exists on both
+        // pages — CIRCLE/UNDERLINE/ARROW/HIGHLIGHT can land on either page's
+        // ink (wiring Step 2).
+        let overlay = AnnotationOverlayView(pageSize: pageSize)
+        container.addSubview(overlay)
+        context.coordinator.overlay = overlay
+
+        // TutorWriter: tutor page only (WRITE is structurally always the
+        // tutor's own page — wiring Step 3). `TutorWriter.init(overlayOn:)`
+        // infers its page size from the host view's *current* bounds, so it
+        // has to be built against `paperView` (already sized to `pageSize`
+        // at this point) rather than `container` (still zero-sized pre-
+        // layout) — then re-homed into `container` so its own `setZoom`
+        // (identical convention to `AnnotationOverlayView`'s) positions it
+        // in the same coordinate space as the overlay above.
+        var writer: TutorWriter?
+        if page.role == .tutor {
+            let w = TutorWriter(overlayOn: paperView)
+            w.removeFromSuperview()
+            container.addSubview(w)
+            writer = w
+            context.coordinator.writer = w
+        }
+
         let picker = PKToolPicker()
         picker.setVisible(true, forFirstResponder: canvasView)
         picker.addObserver(canvasView)
@@ -73,7 +111,11 @@ struct PageCanvasRepresentable: UIViewRepresentable {
         // Student page only for now (Task 12) — the tutor popup page passes
         // no session and never pushes snapshots.
         context.coordinator.session = page.role == .student ? session : nil
+        context.coordinator.tutorCoordinator = page.role == .student ? tutorCoordinator : nil
         context.coordinator.syncUnderlay()
+
+        onOverlayReady?(overlay)
+        if let writer { onWriterReady?(writer) }
 
         // Center the page whenever the container gets its real bounds (zero at
         // makeUIView time) or changes size — insets keep the page mid-screen.
@@ -94,6 +136,7 @@ struct PageCanvasRepresentable: UIViewRepresentable {
             context.coordinator.pdfImageView?.image = page.pdfImage
         }
         context.coordinator.session = page.role == .student ? session : nil
+        context.coordinator.tutorCoordinator = page.role == .student ? tutorCoordinator : nil
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -116,6 +159,9 @@ struct PageCanvasRepresentable: UIViewRepresentable {
         var picker: PKToolPicker? // retain
         var pageSize: CGSize = .zero
         var session: TutorSession?
+        var tutorCoordinator: TutorCoordinator?
+        weak var overlay: AnnotationOverlayView?
+        weak var writer: TutorWriter?
 
         // MARK: - Snapshot push (Task 12): debounce 800ms after the last
         // stroke, then respect a 3s floor between pushes and skip entirely
@@ -148,7 +194,7 @@ struct PageCanvasRepresentable: UIViewRepresentable {
 
         @MainActor
         private func pushSnapshotIfDue() async {
-            guard let session, session.isConnected, let page, let canvasView else { return }
+            guard let session, session.isConnected, let page, let canvasView, let tutorCoordinator else { return }
 
             if canvasView.drawing == lastPushedDrawing { return } // unchanged since last push
 
@@ -168,10 +214,14 @@ struct PageCanvasRepresentable: UIViewRepresentable {
             }
 
             let drawingAtPushTime = canvasView.drawing
-            let snapshot = SnapshotRenderer.render(page: page, pageSize: pageSize)
             lastPushedDrawing = drawingAtPushTime
             lastPushTime = Date()
-            await session.pushImage(snapshot.jpeg)
+            // Wiring Step 4: the bare SnapshotRenderer.render + session.pushImage
+            // call this used to make is replaced by the coordinator's version,
+            // which also computes marks, burns in their ID labels, and pushes
+            // the registry JSON alongside the image — same debounce/interval/
+            // unchanged-drawing gating above, only "what do I push" changed.
+            await tutorCoordinator.pushEnrichedSnapshot(for: page)
         }
 
         func scrollViewDidScroll(_ scrollView: UIScrollView) { syncUnderlay() }
@@ -202,6 +252,12 @@ struct PageCanvasRepresentable: UIViewRepresentable {
                 width: pageSize.width * zoom,
                 height: pageSize.height * zoom
             )
+            // Same zoom/scroll tracking as the paper underlay above, via each
+            // view's own `setZoom` (top-left-anchored CALayer transform,
+            // AnnotationOverlayView/TutorWriter's shared convention) instead
+            // of frame math.
+            overlay?.setZoom(zoom, contentOffset: offset)
+            writer?.setZoom(zoom, contentOffset: offset)
         }
     }
 }

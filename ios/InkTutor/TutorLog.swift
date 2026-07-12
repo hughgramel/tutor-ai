@@ -47,6 +47,19 @@ final class TutorLog {
         return _sessionTokens
     }
 
+    /// Self-calibrating subtitle pace (addendum, 2026-07-12): ms/char
+    /// measured from the most recently COMPLETED response's actual audio
+    /// duration vs. its transcript length. `VoiceBarView`'s word-paced
+    /// reveal loop reads this (falling back to a fixed 45ms/char before any
+    /// response has completed) instead of guessing one fixed pace for every
+    /// voice/response. Already clamped by `recordSpeechPace` — callers never
+    /// need to re-clamp, only supply a fallback for the nil (not-yet-
+    /// measured) case.
+    var lastSpeechPaceMsPerChar: Double? {
+        lock.lock(); defer { lock.unlock() }
+        return _lastSpeechPaceMsPerChar
+    }
+
     /// Running p50/max over every completed exchange this session (one
     /// exchange = one `response.create` -> `response.done`, timed in
     /// `RealtimeSession`). "the latency is bad" — Hugh, 2026-07-12 — this is
@@ -76,6 +89,7 @@ final class TutorLog {
     // (a handful to a few dozen exchanges per session, not thousands).
     private var firstAudioLatenciesMs: [Double] = []
     private var totalLatenciesMs: [Double] = []
+    private var _lastSpeechPaceMsPerChar: Double?
 
     // ponytail: ring buffer capped at 200 entries. This is a live debug
     // aid, not an audit trail — oldest lines just fall off.
@@ -261,6 +275,21 @@ final class TutorLog {
         insertSorted(&totalLatenciesMs, totalMs)
         lock.unlock()
         info(String(format: "latency: first_audio=%.0fms total=%.0fms", firstAudioMs, totalMs))
+    }
+
+    /// One call per response whose audio played to completion (not called
+    /// on a barge-in cutoff — see `RealtimeSession.handleServerEvent`'s
+    /// `output_audio_buffer.cleared` case). Clamped 25-90ms/char: below 25
+    /// reads as a jump-cut even on a very talkative response, above 90 is
+    /// perceptibly behind a terse one.
+    func recordSpeechPace(audioDurationMs: Double, transcriptCharCount: Int) {
+        guard transcriptCharCount > 0, audioDurationMs > 0 else { return }
+        let raw = audioDurationMs / Double(transcriptCharCount)
+        let clamped = min(max(raw, 25), 90)
+        lock.lock()
+        _lastSpeechPaceMsPerChar = clamped
+        lock.unlock()
+        info(String(format: "speech pace calibrated: %.1fms/char (raw %.1f, %d chars)", clamped, raw, transcriptCharCount))
     }
 
     private func insertSorted(_ array: inout [Double], _ value: Double) {
