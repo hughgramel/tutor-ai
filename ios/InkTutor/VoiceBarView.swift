@@ -105,12 +105,8 @@ struct VoiceBarView: View {
                     .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
 
-            // Redundant with the expanded panel's own interleaved student
-            // lines, so only shown in compact mode.
-            if isConnected && !studentTranscript.isEmpty && !isExpanded {
-                studentTranscriptLine
-                    .transition(.opacity)
-            }
+            // ("you: ..." compact line removed — Hugh, 2026-07-12; student
+            // utterances still appear in the expanded history panel.)
         }
         .animation(.spring(response: 0.35, dampingFraction: 0.8), value: connection)
         .animation(.spring(response: 0.35, dampingFraction: 0.8), value: isExpanded)

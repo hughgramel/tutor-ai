@@ -2,17 +2,29 @@
 
 DRAFT — Hugh confirms the script before we rehearse.
 
-## The 60 seconds (proposed, pending Hugh's yes)
+## The 60 seconds (confirmed problem: 3(x+4)=21; one-canvas layout)
 
-Problem: `3(x + 4) = 21`, distributed wrong as `3x + 4 = 21` → grind to `x = 17/3`.
+Everything happens on ONE shared canvas — the tutor writes in the open space
+to the right of the student's work, like a tutor sharing your paper.
 
-1. **0–10s** Write the problem, make the mistake, reach the ugly fraction. Frown.
-2. **10–25s** Hold pill: "this looks wrong but I can't see where." Tutor diagnoses,
-   **circles `3x + 4`** on the student page, asks what the 3 was supposed to do.
-3. **25–50s** Tutor: "let me show you a similar one" → popup opens, **hand-writes
-   `2(x + 5)` with distribution arcs** from the 2 to each term while narrating.
-4. **50–60s** Student circles a line of the tutor's ink, asks "why both?" — tutor
-   highlights its own step and answers. "Now you try yours." `[WAIT]`.
+**The spoken script (Hugh's lines, verbatim rehearsal target):**
+
+1. **0–10s** — Write `3(x + 4) = 21` → `3x + 4 = 21` → `3x = 17` → `x = 17/3`.
+   Look up: *"Okay so… seventeen thirds? That can't be right."*
+2. **10–25s** — HOLD the pill: *"Something's wrong here but I can't find it —
+   can you check my work?"* RELEASE.
+   → Expect: pointer flies in, **circle draws around `3x + 4`**, tutor asks
+   (never tells) what the 3 was supposed to do to everything in the parens.
+3. **25–50s** — HOLD: *"Hmm… show me on a similar one?"* RELEASE.
+   → Expect: tutor **hand-writes `2(x + 5) = 14` beside your work**, draws
+   **arcs from the 2 to the x and to the 5** while narrating, then pauses:
+   "what would you do next?" — answer it by voice.
+4. **50–60s** — Circle the `2(x+5)` line with your pencil, HOLD: *"Wait — why
+   does the 2 have to visit both?"* → tutor points at its own step, answers.
+   *"Got it."* Fix your own line 2 on paper. Tutor stays quiet. **End.**
+
+Barge-in insurance: if the tutor over-talks at any beat, HOLD mid-sentence —
+the interrupt IS a feature moment, use it deliberately once if natural.
 
 ## Pre-demo smoke test (5 min, run twice: morning + right before)
 
