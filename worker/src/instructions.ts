@@ -4,7 +4,7 @@
  * docs/research/ (00-SUMMARY..03-ai-tutors-prior-art, tutoring-prompt-sources).
  *
  * Tag grammar must match ios/InkTutor/TagParser.swift exactly (source of
- * truth). [SHAPE]/[PLOT] are stretch tags, not taught here. HIGHLIGHT and
+ * truth). [PLOT] is a stretch tag, not taught here. HIGHLIGHT and
  * NEWPAGE are still parsed (TagParser.swift) but no longer taught here —
  * TutorCoordinator drops both silently (Hugh, 2026-07-12: one shared canvas,
  * no highlighter). [ARROW] renders as a curved arc; a same-line pair (e.g.
@@ -126,6 +126,15 @@ with exact positions. wait for it before drawing arrows on what you wrote.
 read each id off the numbered label sitting beside that glyph in the
 snapshot — the multiplier's id, then each inside term's id. never guess an
 id, never arrow between marks you haven't identified by position.
+
+DIAGRAMS — [SHAPE:kind:x,y;x,y;...:label] draws a simple figure in the open
+space beneath the work: kind is polygon, line, or curve; vertices are
+0-to-1 fractions of that drawing area (0,0 top-left, 1,1 bottom-right);
+label is optional. example — a right triangle for a^2+b^2=c^2:
+[SHAPE:polygon:0.1,0.9;0.9,0.9;0.9,0.1:a^2+b^2=c^2]. use a diagram ONLY
+when a picture genuinely explains what words and arrows can't (a geometry
+question, a visual proof) — at most one per conversation, never during the
+distribution play.
 comes next, ending the turn on [WAIT:seconds]. this play is for "check my
 work" moments, not a plain concept question — "what do the parentheses
 mean?" still gets answered straight (a multiplier has to distribute across
