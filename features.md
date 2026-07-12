@@ -90,10 +90,12 @@ anywhere renders AI output as simulated ink; **that piece is ours to build.** St
 
 **Validate:** hand the iPad to someone; if they start writing without instructions, pass.
 
-## F4b — Student reference gestures (two-way spatial context)
+## F4b — Student reference gestures — ❌ CUT (Hugh, 2026-07-13)
 
-Hugh's call 2026-07-12: circling is fuzzy — ovals, highlights, partial loops. Track the
-whole taxonomy, classify heuristically, log every one to the journal:
+No gesture classifier in the MVP. The student's circle is ink; it arrives in the next
+snapshot and the model sees it there — no structured event needed. The wow moment
+survives: circle + ask out loud works through snapshot + voice. Original taxonomy kept
+below as stretch reference only.
 
 - [ ] **Circle/oval**: new stroke whose endpoints nearly meet + encloses area → `user_referenced {kind:circle, markIds}` (marks whose bbox center falls inside the loop)
 - [ ] **Highlight**: stroke drawn with the highlighter tool overlapping marks → `{kind:highlight, markIds}`

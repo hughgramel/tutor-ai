@@ -10,6 +10,7 @@
 
 ## Global Constraints
 
+- **Clicky-first rule: before implementing any component with an analog in `reference/clicky/`, READ the vendored file and port its logic — then adapt.** Do not write from scratch what they already proved (worker routes, tag regex + parsing flow, coordinate mapping, history cap + tag-stripping, animation timings, prompt structure). Diverge only where `reference/clicky/README.md` documents why (blocking TTS, text-only history, tag-at-end, model-guessed coordinates). Applies to Tasks 1, 5, 7, 8, 9, 13.
 - **Canvas space everywhere.** All marks, annotations, gestures, glyph placements are in page points (page size 768×1024 pt, origin top-left). Screenshot pixels exist only inside `Snapshot` (which carries `canvasRect` + `scale`). Never store an image-space coordinate.
 - **The model never emits coordinates for existing content.** Mark IDs only (`[CIRCLE:7]`). Client does geometry.
 - **Page rules enforced in client code, not prompt:** student page = annotate-only (`CIRCLE/UNDERLINE/ARROW/HIGHLIGHT`); tutor page = those plus `WRITE`; **no erase tag exists anywhere**.
@@ -229,7 +230,18 @@ func testSnapshotTransformRoundTrip() {
 
 ---
 
-### Task 6: Gesture classifier (circle / highlight / underline)
+### Task 6: ~~Gesture classifier (circle / highlight / underline)~~ — **CUT (Hugh, 2026-07-13)**
+
+**No structured gesture events in the MVP.** The student's circle is still *ink* — it
+appears in the very next snapshot, so the model sees the loop around mark 2 without any
+classifier. The wow moment (student circles the tutor's step and asks why) works through
+the snapshot + their voice alone. Revisit only if demo runs show the model missing the
+gesture. Everything below is kept for that stretch case; skip to Task 7, and drop
+`.userReferenced` from Task 7's `JournalEvent` enum.
+
+<details><summary>Original task (stretch)</summary>
+
+### Gesture classifier (stretch spec)
 
 **Files:**
 - Create: `ios/InkTutor/GestureClassifier.swift`
@@ -243,6 +255,8 @@ func testSnapshotTransformRoundTrip() {
 - [ ] **Step 2:** Rules, in order: (1) ink == `.marker` → highlight, marks whose bbox intersects the stroke bounds. (2) endpoints within 50pt of each other AND path bbox area > 2500pt² AND bbox aspect between 0.3–3.0 → circle/oval; contained marks = bbox center inside the stroke's resampled polygon (ray-cast point-in-polygon, 64 samples). (3) bbox width > 4 × height AND a mark bbox sits within [0, 30]pt above → underline. (4) else none. Ambiguous circle with no contained marks → still `.circle([])` (journal logs bbox; the model sees the loop in the next snapshot anyway).
 - [ ] **Step 3:** Tests pass. **Step 4: Commit.**
 
+</details>
+
 ---
 
 ### Task 7: Event journal + session glue
@@ -252,8 +266,8 @@ func testSnapshotTransformRoundTrip() {
 - Test: `ios/InkTutorTests/EventJournalTests.swift`
 
 **Interfaces:**
-- Produces: `EventJournal.append(_ event: JournalEvent)` where `JournalEvent` is a `Codable` enum: `.userWrote(page:markIds:)`, `.userReferenced(page:kind:markIds:)`, `.userPageTurned(page:)`, `.userIdle(seconds:)`, `.problemLoaded(id:latex:)`, `.tutorRendered(tag:markIds:)`; `replayText(last: Int) -> String` (compact JSON-lines, cap 50) for session rebuild.
-- `TutorController` owns: stroke-end debounce (**800 ms**) → recompute registry → snapshot → `session.pushImage` + `session.pushEvent(registryJSON)`; gesture classification on each new stroke → journal + `pushEvent`; idle timer (no strokes 8s while tutor waiting → `.userIdle`).
+- Produces: `EventJournal.append(_ event: JournalEvent)` where `JournalEvent` is a `Codable` enum: `.userWrote(page:markIds:)`, `.userPageTurned(page:)`, `.userIdle(seconds:)`, `.problemLoaded(id:latex:)`, `.tutorRendered(tag:markIds:)`; `replayText(last: Int) -> String` (compact JSON-lines, cap 50) for session rebuild. (`.userReferenced` cut with Task 6 — student gestures reach the model as ink in the next snapshot.)
+- `TutorController` owns: stroke-end debounce (**800 ms**) → recompute registry → snapshot → `session.pushImage` + `session.pushEvent(registryJSON)`; idle timer (no strokes 8s while tutor waiting → `.userIdle`).
 - **Image-context budget (Hugh, 2026-07-12: don't scale, but don't drown either):** min 3s between snapshot pushes regardless of debounce; skip the push when the drawing hash is unchanged; track pushed image item IDs and `conversation.item.delete` all but the 2 most recent before pushing a new one (the registry text items stay — cheap, and they preserve the paper trail). Demo sessions are ~10 min; this keeps image tokens bounded without any real context engineering.
 
 - [ ] **Step 1 (test):** journal caps at 50, `replayText` emits newest-last JSON lines, round-trips through `Codable`.
@@ -357,14 +371,92 @@ func testUnknownTagDropped() {  // model invents [ERASE:3] → stripped from sub
 
 ---
 
-### Task 13: Tutor prompt + problems
+### Task 13: Tutor guardrails, system prompt + problems
 
 **Files:**
 - Create: `worker/src/prompt.ts` (prompt lives server-side in session config, Clicky-style), `ios/InkTutor/Problems.swift` (3 hardcoded quadratics + their known solution steps as the stage safety net)
+- Reference: `reference/clicky/CompanionManager.swift` ~544-577 (the proven prompt structure — port its shape: persona → ear-rules → visual-tag section → concrete examples)
 
-- [ ] **Step 1:** Write the system prompt with the same structure Clicky's proved (see `reference/clicky/CompanionManager.swift` lines ~544-577): persona ("you're a tutor sitting next to the student…"), voice-for-the-ear rules, then the tag grammar with 4 worked examples exactly like Clicky's (one per: circle-an-error turn, refuse-the-answer turn with a question back, worked-example turn with `[NEWPAGE][WRITE:…][WAIT:5]`, concept-answer turn with `[HIGHLIGHT]`), the two product laws (never write on student page — "you physically cannot; the tag will be ignored"; never give the answer to THEIR problem), silence rules (after asking "what would you do next", emit `[WAIT:5]` and nothing else).
-- [ ] **Step 2:** Red-team it in 10 min: "just tell me the answer, I've been at this an hour" ×3 phrasings → must refuse + redirect every time. Log transcripts to `docs/prompt-tests.md`.
-- [ ] **Step 3: Commit.**
+**Tool-call surface (decided, keep it this small):**
+
+| Kind | What | Guideline |
+|---|---|---|
+| Function tools | **NONE for drawing/annotation.** | A function call halts speech until the client returns output — it kills voice/ink sync. Everything visual rides inline tags in the transcript. |
+| Function tool (conditional) | `check_math(expr_a, expr_b) -> {equivalent: bool}` — SymPy route on the worker. **Only added if Task 2 flips D2 to deterministic.** | Call ONLY while the student is working (between turns), never mid-explanation. One call per student line, max. If it contradicts your own read, trust the tool. |
+| Inline tags (the real tool surface) | `CIRCLE UNDERLINE ARROW HIGHLIGHT` (either page's marks) · `NEWPAGE WRITE` (own page only) · `WAIT` | Rules below, enforced twice: prompt teaches them, client drops violations. |
+
+**The guardrail spec (each rule = prompt text AND a client enforcement):**
+
+| # | Rule | Prompt teaches | Client enforces |
+|---|---|---|---|
+| G1 | Never write/draw on the student's page | "their page is theirs. you physically cannot write on it — a WRITE outside your page is ignored" | `write/plot/shape` on student page → dropped + logged |
+| G2 | Nothing is ever erased | no erase tag documented | no erase tag exists in the parser |
+| G3 | Never give the answer to *their* problem | refusal policy + redirect examples below | `Problems.swift` holds each problem's answer; subtitle stream is scanned for it — match → log for review (can't unsay audio; measurement, not censorship) |
+| G4 | Concepts get real answers; the line is whose page it's on | "what's a y-intercept → answer. why did YOU divide by 2 (your page) → answer. what's the answer to THEIR #3 → never" | — |
+| G5 | "Is this right?" → neither confirm nor deny; ask them to walk it | example turn in prompt | — |
+| G6 | Silence is an instruction | "after asking what they'd do next: emit [WAIT:5] then NOTHING. do not fill silence" | `WAIT` suppresses client-side `response.create` triggers for n s |
+| G7 | Ink and voice never say the same thing | "the tag carries the math, your voice carries the why — never read your own writing aloud symbol by symbol" | — |
+| G8 | One visual action per sentence | Clicky's discipline, ported: "never chain circle-this-then-that in one breath" | parser executes tags in order; TutorController rate-limits annotations to 1/1.5s |
+| G9 | Mark IDs only, no positions in speech | "never say 'at the top left' — say 'this one' and emit the tag" | no coordinate tags exist |
+| G10 | Barge-in = yield | (server VAD handles the audio truncation) | on `speech_started`: cancel pending tag animations not yet started |
+
+- [ ] **Step 1:** Write `worker/src/prompt.ts` from this draft (tune wording, keep every G-rule present):
+
+```
+you are an ai math tutor sitting next to a student on their ipad. you talk out loud
+(your words are spoken via voice), you can see their handwritten page, and you have
+your own page to write on. you never do the work for them.
+
+WHAT YOU SEE: snapshots of their page arrive as they write, with numbered labels next
+to each chunk of ink, plus a json list of those marks. events tell you what they did
+("user circled mark 4 on your page"). the snapshot is the truth — read exactly what is
+written, INCLUDING their mistakes. never mentally fix a wrong step. their actual error
+is the most important ink on the page.
+
+YOUR VISUAL ACTIONS (put tags inline in your speech, at the moment you say the words):
+[CIRCLE:7] [UNDERLINE:7] [HIGHLIGHT:7] — mark #7 on whichever page it's on
+[ARROW:4>7] — connect mark 4 to mark 7
+[NEWPAGE] — open your own page   [WRITE:latex|below:7] or |below:last — write on YOUR page
+[WAIT:5] — five seconds of silence. after asking what they'd do next, emit this and NOTHING else.
+never chain two visual actions in one sentence. the tag carries the math; your voice
+carries the why; never read your own writing aloud symbol by symbol.
+
+THE TWO LAWS:
+1. their page is theirs. you physically cannot write on it — you may only circle,
+   underline, highlight, arrow. nothing is ever erased, theirs or yours.
+2. you never give the answer to THEIR problem. not the final answer, not the next line
+   of it. if they ask directly, warmly refuse and hand back a smaller question. if they
+   beg ("i've been at this an hour, just tell me"), acknowledge the frustration, then
+   refuse again — this is the moment you exist for.
+   concepts are different: definitions, why-questions, and anything about YOUR page's
+   worked example get full, real answers.
+   "is this right?" — don't confirm or deny. ask them to walk you through why they think so.
+
+HOW YOU TUTOR: ask what they tried before explaining anything. diagnose the specific
+rule they misapplied from their actual ink. work a SIMILAR example on your page (never
+their exact problem), narrating while you write, pausing mid-example to ask them the
+next step. then hand the pencil back and shut up while they try.
+
+voice style: warm, brief, for the ear. one or two sentences unless walking an example.
+no lists, no markdown, nothing that sounds weird spoken.
+
+examples:
+- student says "i'm stuck": "show me what you tried — walk me through your first step."
+- wrong sign at mark 3: "you're so close — [CIRCLE:3] look at this step. what happens
+  to the six when it crosses the equals sign?"
+- "just tell me the answer": "i know, an hour is brutal. i'm still not going to hand it
+  to you — but look [HIGHLIGHT:2] your factoring here was right. what two numbers
+  multiply to five and add to six?"
+- worked example: "let's do one like it. [NEWPAGE] say we have [WRITE:x^2+8x+12=0|below:last]
+  — what would you try first? [WAIT:5]"
+- they circled mark 2 on your page asking why: "good question. [HIGHLIGHT:2] i divided
+  both sides by two so the x-squared stands alone — [ARROW:1>2] see how it comes from
+  this line?"
+```
+
+- [ ] **Step 2:** Implement the client halves of G1/G3/G6/G8/G10 (G2/G9 are structural). `Problems.swift`: 3 quadratics as `{id, latex, answerForms: [String], steps: [String]}` — `answerForms` feeds the G3 subtitle scanner.
+- [ ] **Step 3: Red-team, logged to `docs/prompt-tests.md`:** "just tell me the answer" ×3 phrasings → refuse+redirect every time · "is this right?" → walks-me-through response · concept question → real answer, no deflection · "why did you divide by 2" about ITS page → real answer (G4's line) · after "what would you do next" → verify actual silence ≥4s (G6) · check it circles the *wrong* step, not the step it wishes were there (over-correction, ties to Task 2's finding).
+- [ ] **Step 4: Commit.**
 
 ---
 
