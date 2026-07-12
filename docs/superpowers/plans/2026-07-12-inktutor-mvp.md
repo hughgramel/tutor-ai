@@ -11,6 +11,7 @@
 ## Global Constraints
 
 - **Clicky-first rule: before implementing any component with an analog in `reference/clicky/`, READ the vendored file and port its logic — then adapt.** Do not write from scratch what they already proved (worker routes, tag regex + parsing flow, coordinate mapping, history cap + tag-stripping, animation timings, prompt structure). Diverge only where `reference/clicky/README.md` documents why (blocking TTS, text-only history, tag-at-end, model-guessed coordinates). Applies to Tasks 1, 5, 7, 8, 9, 13.
+- **The five heuristics (Hugh, 2026-07-13) — tiebreaker for every implementation choice:** (1) feel like a human, (2) talk like a human, (3) tutoring heuristics first (`docs/research/00-SUMMARY.md` is law), (4) student + learning first — never pull them away, stress them, or touch their work, (5) everything drawn looks hand-drawn — but a tutor's board hand, professional, not a scrawl. When two options are otherwise equal, the more human one wins.
 - **Canvas space everywhere.** All marks, annotations, gestures, glyph placements are in page points (page size 768×1024 pt, origin top-left). Screenshot pixels exist only inside `Snapshot` (which carries `canvasRect` + `scale`). Never store an image-space coordinate.
 - **The model never emits coordinates for existing content.** Mark IDs only (`[CIRCLE:7]`). Client does geometry.
 - **Page rules enforced in client code, not prompt:** student page = annotate-only (`CIRCLE/UNDERLINE/ARROW/HIGHLIGHT`); tutor page = those plus `WRITE`; **no erase tag exists anywhere**.

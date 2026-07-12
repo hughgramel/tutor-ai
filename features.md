@@ -9,6 +9,14 @@ Platform: **native iPad, Swift + PencilKit.** (Confirmed by Hugh 2026-07-12 — 
 library for swift." The "DOM" is not a DOM: it's the PKStroke list + a derived mark
 registry. See F5.)
 
+## Heuristics (Hugh, 2026-07-13 — every feature gets judged against these)
+
+1. **Feel like a human** — pointer flies like a finger, ink draws in at hand speed, nothing blinks in or teleports.
+2. **Talk like a human** — short, warm, lowercase-casual voice; never lecture-dumps; silence is allowed.
+3. **Tutoring heuristics first** — Socratic, never gives the answer, asks what they'd do next; the research constraints (`docs/research/00-SUMMARY.md`) are law.
+4. **Student + learning first** — never pull them away from their work (popup, not page-flip), never write on their page, never stress them; the student's understanding is the product, not the demo.
+5. **Everything drawn looks hand-drawn** — circles, arrows, diagrams, worked examples: wobble, jitter, real pen strokes. But *good* handwriting — a tutor's board hand, not a scrawl.
+
 ---
 
 ## F1 — Voice: talk to the tutor
