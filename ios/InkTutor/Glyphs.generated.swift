@@ -31,10 +31,46 @@
 //   plusminus  dataset:train:03d92e3e170bb629:[0, 1, 2]
 //   sqrt       hand-authored
 //   fracbar    hand-authored
+//   a          dataset:symbols:01b947ea04229c50.inkml
+//   b          dataset:train:068de3aad90c403c:[9]
+//   c          dataset:symbols:0405148ac6639b60.inkml
+//   d          dataset:symbols:00364596a5f9045f.inkml
+//   e          dataset:symbols:0443bfd082dfb224.inkml
+//   f          hand-authored
+//   g          dataset:symbols:025a8d2418de6a4f.inkml
+//   h          hand-authored
+//   k          hand-authored
+//   m          dataset:symbols:03192e0226ad9cd9.inkml
+//   n          dataset:train:068de3aad90c403c:[10]
+//   p          dataset:symbols:0254dc96046f7c35.inkml
+//   q          dataset:train:070c12a71a7265a3:[15]
+//   r          hand-authored
+//   s          dataset:train:068de3aad90c403c:[17]
+//   t          dataset:symbols:02fa953530d762fc.inkml
+//   u          hand-authored
+//   v          hand-authored
+//   int        hand-authored
+//   '          dataset:train:05373ec225cc541a:[8]
+//   partial    dataset:train:04f16ee0cbb55791:[4]
+//   <          dataset:train:0717c14705cc721d:[9]
+//   >          dataset:train:046728735864246f:[13]
+//   pi         hand-authored
+//   theta      dataset:symbols:016eceed5d406c2b.inkml
 //
 // Each stroke is <=32 points, resampled (RDP simplify + uniform
 // arclength), normalized into a unit box (larger dimension == 1.0,
 // aspect preserved, origin at the glyph's top-left corner).
+//
+// NOT YET WIRED TO RENDER (TutorWriter.swift follow-up, see
+// extract_glyphs.py's "TutorWriter compatibility note" for the exact
+// codepoints/line numbers): every new letter here plus π/θ/∂/prime
+// needs normalizeGlyphKey extended (SwiftMath italicizes single-char
+// variables into the Mathematical Alphanumeric Symbols block before
+// TutorWriter ever sees them — same reason x/y already need folding).
+// "∫" additionally needs TutorWriterLayout.walk to handle
+// MTGlyphDisplay nodes (same pre-existing gap "√"/MTRadicalDisplay
+// already has — \int lays out as a single large-operator glyph, not
+// a CTLine).
 
 import CoreGraphics
 
@@ -114,5 +150,89 @@ let glyphStrokes: [String: [[CGPoint]]] = [
     ],
     "fracbar": [
         [CGPoint(x: 0.0000, y: 0.0000), CGPoint(x: 1.0000, y: 0.0000)],
+    ],
+    "a": [
+        [CGPoint(x: 0.8888, y: 0.2222), CGPoint(x: 0.8149, y: 0.1481), CGPoint(x: 0.5927, y: 0.0000), CGPoint(x: 0.4696, y: 0.0000), CGPoint(x: 0.3149, y: 0.0371), CGPoint(x: 0.1086, y: 0.1401), CGPoint(x: 0.0350, y: 0.2948), CGPoint(x: 0.0000, y: 0.4442), CGPoint(x: 0.0000, y: 0.5738), CGPoint(x: 0.0371, y: 0.6662), CGPoint(x: 0.2013, y: 0.7400), CGPoint(x: 0.3519, y: 0.7218), CGPoint(x: 0.5000, y: 0.6477), CGPoint(x: 0.6979, y: 0.4500), CGPoint(x: 0.9294, y: 0.1075), CGPoint(x: 1.0000, y: 0.6477)],
+    ],
+    "b": [
+        [CGPoint(x: 0.0044, y: 0.0000), CGPoint(x: 0.0000, y: 0.0837), CGPoint(x: 0.0649, y: 0.5171), CGPoint(x: 0.0485, y: 0.9515), CGPoint(x: 0.1762, y: 0.6344), CGPoint(x: 0.2364, y: 0.5371), CGPoint(x: 0.3084, y: 0.4714), CGPoint(x: 0.3436, y: 0.4581), CGPoint(x: 0.4185, y: 0.4714), CGPoint(x: 0.4758, y: 0.5374), CGPoint(x: 0.5198, y: 0.6564), CGPoint(x: 0.5154, y: 0.7665), CGPoint(x: 0.4405, y: 0.8987), CGPoint(x: 0.3656, y: 0.9559), CGPoint(x: 0.2379, y: 1.0000)],
+    ],
+    "c": [
+        [CGPoint(x: 0.4802, y: 0.0000), CGPoint(x: 0.2401, y: 0.3139), CGPoint(x: 0.0584, y: 0.5993), CGPoint(x: 0.0105, y: 0.7124), CGPoint(x: 0.0000, y: 0.8007), CGPoint(x: 0.0185, y: 0.8677), CGPoint(x: 0.0924, y: 0.9229), CGPoint(x: 0.2031, y: 0.9599), CGPoint(x: 0.4630, y: 1.0000)],
+    ],
+    "d": [
+        [CGPoint(x: 0.4414, y: 0.0000), CGPoint(x: 0.4144, y: 0.1081), CGPoint(x: 0.4414, y: 1.0000), CGPoint(x: 0.3694, y: 0.9459), CGPoint(x: 0.2793, y: 0.8018), CGPoint(x: 0.1712, y: 0.7117), CGPoint(x: 0.0811, y: 0.7117), CGPoint(x: 0.0450, y: 0.7387), CGPoint(x: 0.0000, y: 0.8198), CGPoint(x: 0.0000, y: 0.8649), CGPoint(x: 0.0721, y: 0.9459), CGPoint(x: 0.1892, y: 0.9820), CGPoint(x: 0.4775, y: 0.9640)],
+    ],
+    "e": [
+        [CGPoint(x: 0.3218, y: 0.3908), CGPoint(x: 0.3218, y: 0.4368), CGPoint(x: 0.3999, y: 0.4934), CGPoint(x: 0.5172, y: 0.5172), CGPoint(x: 0.6732, y: 0.5113), CGPoint(x: 0.8506, y: 0.3333), CGPoint(x: 0.8506, y: 0.1264), CGPoint(x: 0.8046, y: 0.0805), CGPoint(x: 0.6437, y: 0.0230), CGPoint(x: 0.4828, y: 0.0000), CGPoint(x: 0.1859, y: 0.0111), CGPoint(x: 0.0805, y: 0.1149), CGPoint(x: 0.0000, y: 0.3218), CGPoint(x: 0.0000, y: 0.6092), CGPoint(x: 0.0230, y: 0.6782), CGPoint(x: 0.0805, y: 0.7471), CGPoint(x: 0.1954, y: 0.8506), CGPoint(x: 0.3103, y: 0.9195), CGPoint(x: 0.4253, y: 0.9655), CGPoint(x: 0.6667, y: 1.0000)],
+    ],
+    "f": [
+        [CGPoint(x: 0.4430, y: 0.2275), CGPoint(x: 0.3975, y: 0.2796), CGPoint(x: 0.3356, y: 0.3107), CGPoint(x: 0.2666, y: 0.3161), CGPoint(x: 0.2007, y: 0.2949), CGPoint(x: 0.1476, y: 0.2504), CGPoint(x: 0.1153, y: 0.1892), CGPoint(x: 0.1086, y: 0.1202), CGPoint(x: 0.1285, y: 0.0539), CGPoint(x: 0.1720, y: 0.0000), CGPoint(x: 0.1677, y: 1.0000)],
+        [CGPoint(x: 0.0000, y: 0.4011), CGPoint(x: 0.4551, y: 0.4011)],
+    ],
+    "g": [
+        [CGPoint(x: 0.4548, y: 0.0000), CGPoint(x: 0.2693, y: 0.2259), CGPoint(x: 0.2116, y: 0.3395), CGPoint(x: 0.2166, y: 0.3693), CGPoint(x: 0.2766, y: 0.3788), CGPoint(x: 0.5317, y: 0.2503), CGPoint(x: 0.5702, y: 0.2543), CGPoint(x: 0.5871, y: 0.3788), CGPoint(x: 0.5679, y: 0.5776), CGPoint(x: 0.4910, y: 0.7832), CGPoint(x: 0.4417, y: 0.8581), CGPoint(x: 0.3440, y: 0.9442), CGPoint(x: 0.2120, y: 1.0000), CGPoint(x: 0.0604, y: 0.9740), CGPoint(x: 0.0000, y: 0.9225), CGPoint(x: 0.0000, y: 0.8583)],
+    ],
+    "h": [
+        [CGPoint(x: 0.0217, y: 0.0000), CGPoint(x: 0.0000, y: 1.0000)],
+        [CGPoint(x: 0.0217, y: 0.7609), CGPoint(x: 0.0288, y: 0.6935), CGPoint(x: 0.0493, y: 0.6316), CGPoint(x: 0.0818, y: 0.5801), CGPoint(x: 0.1234, y: 0.5433), CGPoint(x: 0.1709, y: 0.5242), CGPoint(x: 0.2204, y: 0.5242), CGPoint(x: 0.2679, y: 0.5433), CGPoint(x: 0.3095, y: 0.5801), CGPoint(x: 0.3420, y: 0.6316), CGPoint(x: 0.3625, y: 0.6935), CGPoint(x: 0.3913, y: 0.9783)],
+    ],
+    "k": [
+        [CGPoint(x: 0.0217, y: 0.0000), CGPoint(x: 0.0000, y: 1.0000)],
+        [CGPoint(x: 0.0217, y: 0.5435), CGPoint(x: 0.3913, y: 0.1522)],
+        [CGPoint(x: 0.0435, y: 0.5652), CGPoint(x: 0.4130, y: 0.9783)],
+    ],
+    "m": [
+        [CGPoint(x: 0.0000, y: 0.0851), CGPoint(x: 0.0851, y: 0.5691), CGPoint(x: 0.1755, y: 0.1755), CGPoint(x: 0.2234, y: 0.0718), CGPoint(x: 0.2713, y: 0.0319), CGPoint(x: 0.3403, y: 0.0508), CGPoint(x: 0.4309, y: 0.1915), CGPoint(x: 0.4734, y: 0.3723), CGPoint(x: 0.4787, y: 0.5000), CGPoint(x: 0.5053, y: 0.3298), CGPoint(x: 0.5907, y: 0.1444), CGPoint(x: 0.7394, y: 0.0106), CGPoint(x: 0.8404, y: 0.0000), CGPoint(x: 0.9012, y: 0.0580), CGPoint(x: 0.9495, y: 0.1809), CGPoint(x: 0.9468, y: 0.3883), CGPoint(x: 0.9784, y: 0.5273), CGPoint(x: 1.0000, y: 0.5532)],
+    ],
+    "n": [
+        [CGPoint(x: 0.0244, y: 1.0000), CGPoint(x: 0.0000, y: 0.7710), CGPoint(x: 0.0366, y: 0.4024), CGPoint(x: 0.1220, y: 0.1707), CGPoint(x: 0.2195, y: 0.0610), CGPoint(x: 0.3441, y: 0.0032), CGPoint(x: 0.4390, y: 0.0000), CGPoint(x: 0.6098, y: 0.0610), CGPoint(x: 0.9634, y: 0.4024)],
+    ],
+    "p": [
+        [CGPoint(x: 0.2734, y: 0.0000), CGPoint(x: 0.2025, y: 0.3910), CGPoint(x: 0.0000, y: 0.9629), CGPoint(x: 0.0000, y: 1.0000)],
+        [CGPoint(x: 0.3124, y: 0.0521), CGPoint(x: 0.5448, y: 0.0521), CGPoint(x: 0.6119, y: 0.0650), CGPoint(x: 0.6509, y: 0.1432), CGPoint(x: 0.6119, y: 0.1952), CGPoint(x: 0.5338, y: 0.2473), CGPoint(x: 0.3385, y: 0.3253), CGPoint(x: 0.1823, y: 0.3384)],
+    ],
+    "q": [
+        [CGPoint(x: 0.4743, y: 0.0470), CGPoint(x: 0.3004, y: 0.0000), CGPoint(x: 0.1763, y: 0.0233), CGPoint(x: 0.0810, y: 0.1066), CGPoint(x: 0.0214, y: 0.2020), CGPoint(x: 0.0000, y: 0.3091), CGPoint(x: 0.0214, y: 0.4282), CGPoint(x: 0.0691, y: 0.4997), CGPoint(x: 0.1287, y: 0.5116), CGPoint(x: 0.1793, y: 0.4813), CGPoint(x: 0.2479, y: 0.4163), CGPoint(x: 0.3922, y: 0.1992), CGPoint(x: 0.2837, y: 0.6308), CGPoint(x: 0.2511, y: 0.8260), CGPoint(x: 0.2479, y: 1.0000), CGPoint(x: 0.2944, y: 0.9845), CGPoint(x: 0.6292, y: 0.5831)],
+    ],
+    "r": [
+        [CGPoint(x: 0.0000, y: 1.0000), CGPoint(x: 0.0645, y: 0.0000), CGPoint(x: 0.0034, y: 0.0253), CGPoint(x: 0.0027, y: 0.0994), CGPoint(x: 0.0260, y: 0.1698), CGPoint(x: 0.0708, y: 0.2288), CGPoint(x: 0.1324, y: 0.2701), CGPoint(x: 0.2039, y: 0.2893), CGPoint(x: 0.2779, y: 0.2842), CGPoint(x: 0.3462, y: 0.2555), CGPoint(x: 0.4016, y: 0.2063), CGPoint(x: 0.4380, y: 0.1417)],
+    ],
+    "s": [
+        [CGPoint(x: 0.8532, y: 0.0275), CGPoint(x: 0.7853, y: 0.0000), CGPoint(x: 0.6422, y: 0.0459), CGPoint(x: 0.4037, y: 0.1835), CGPoint(x: 0.3725, y: 0.2439), CGPoint(x: 0.3670, y: 0.3119), CGPoint(x: 0.3945, y: 0.4486), CGPoint(x: 0.4936, y: 0.7029), CGPoint(x: 0.4862, y: 0.7798), CGPoint(x: 0.3028, y: 0.9083), CGPoint(x: 0.0826, y: 0.9908), CGPoint(x: 0.0000, y: 1.0000)],
+    ],
+    "t": [
+        [CGPoint(x: 0.0000, y: 0.5060), CGPoint(x: 0.0542, y: 0.5120), CGPoint(x: 0.1727, y: 0.4839), CGPoint(x: 0.3434, y: 0.4157)],
+        [CGPoint(x: 0.3675, y: 0.0000), CGPoint(x: 0.3207, y: 0.2428), CGPoint(x: 0.2952, y: 0.6145), CGPoint(x: 0.3133, y: 0.8675), CGPoint(x: 0.3494, y: 0.9699), CGPoint(x: 0.4025, y: 1.0000), CGPoint(x: 0.4398, y: 0.9880), CGPoint(x: 0.4819, y: 0.9398), CGPoint(x: 0.6024, y: 0.7530), CGPoint(x: 0.6566, y: 0.6145)],
+    ],
+    "u": [
+        [CGPoint(x: 0.0000, y: 0.0334), CGPoint(x: 0.0000, y: 0.6683), CGPoint(x: 0.0344, y: 0.8236), CGPoint(x: 0.1299, y: 0.9433), CGPoint(x: 0.1941, y: 0.9807), CGPoint(x: 0.3370, y: 1.0000), CGPoint(x: 0.4716, y: 0.9433), CGPoint(x: 0.5258, y: 0.8899), CGPoint(x: 0.5927, y: 0.7483), CGPoint(x: 0.6349, y: 0.0000)],
+    ],
+    "v": [
+        [CGPoint(x: 0.0000, y: 0.0263), CGPoint(x: 0.4474, y: 1.0000), CGPoint(x: 0.9211, y: 0.0000)],
+    ],
+    "∫": [
+        [CGPoint(x: 0.2004, y: 0.1168), CGPoint(x: 0.2478, y: 0.0850), CGPoint(x: 0.2478, y: 0.0318), CGPoint(x: 0.2004, y: 0.0000), CGPoint(x: 0.1437, y: 0.0153), CGPoint(x: 0.0417, y: 0.1459), CGPoint(x: 0.0021, y: 0.2318), CGPoint(x: 0.0000, y: 0.2961), CGPoint(x: 0.0224, y: 0.3605), CGPoint(x: 0.2245, y: 0.6180), CGPoint(x: 0.2614, y: 0.7253), CGPoint(x: 0.2309, y: 0.8326), CGPoint(x: 0.1155, y: 0.9847), CGPoint(x: 0.0589, y: 1.0000), CGPoint(x: 0.0114, y: 0.9682), CGPoint(x: 0.0114, y: 0.9150), CGPoint(x: 0.0589, y: 0.8832)],
+    ],
+    "'": [
+        [CGPoint(x: 0.1109, y: 0.0000), CGPoint(x: 0.1109, y: 0.4340), CGPoint(x: 0.0700, y: 0.7193), CGPoint(x: 0.0000, y: 1.0000)],
+    ],
+    "∂": [
+        [CGPoint(x: 0.1262, y: 0.1129), CGPoint(x: 0.1113, y: 0.0481), CGPoint(x: 0.1970, y: 0.0000), CGPoint(x: 0.2791, y: 0.0251), CGPoint(x: 0.3273, y: 0.0669), CGPoint(x: 0.3755, y: 0.1381), CGPoint(x: 0.4535, y: 0.3347), CGPoint(x: 0.4683, y: 0.5669), CGPoint(x: 0.4350, y: 0.6799), CGPoint(x: 0.3160, y: 0.8766), CGPoint(x: 0.1559, y: 0.9833), CGPoint(x: 0.0815, y: 1.0000), CGPoint(x: 0.0298, y: 0.9895), CGPoint(x: 0.0000, y: 0.9540), CGPoint(x: 0.0315, y: 0.8463), CGPoint(x: 0.1601, y: 0.6967), CGPoint(x: 0.2975, y: 0.5774), CGPoint(x: 0.4648, y: 0.5000), CGPoint(x: 0.4981, y: 0.5126), CGPoint(x: 0.5398, y: 0.5662)],
+    ],
+    "<": [
+        [CGPoint(x: 1.0000, y: 0.0000), CGPoint(x: 0.7506, y: 0.0890), CGPoint(x: 0.0000, y: 0.6434), CGPoint(x: 0.6104, y: 0.8094), CGPoint(x: 0.7046, y: 0.8582)],
+    ],
+    ">": [
+        [CGPoint(x: 0.0000, y: 0.0000), CGPoint(x: 0.2135, y: 0.1245), CGPoint(x: 0.6760, y: 0.3380), CGPoint(x: 0.8184, y: 0.4448), CGPoint(x: 0.7472, y: 0.5693), CGPoint(x: 0.4092, y: 0.8539), CGPoint(x: 0.2880, y: 1.0000)],
+    ],
+    "π": [
+        [CGPoint(x: 0.0000, y: 0.1102), CGPoint(x: 0.1075, y: 0.0481), CGPoint(x: 0.1928, y: 0.0247), CGPoint(x: 0.4029, y: 0.0000), CGPoint(x: 0.7258, y: 0.0247), CGPoint(x: 0.8112, y: 0.0481), CGPoint(x: 0.9186, y: 0.1102)],
+        [CGPoint(x: 0.1214, y: 0.1241), CGPoint(x: 0.0714, y: 1.0000)],
+        [CGPoint(x: 0.7471, y: 0.1241), CGPoint(x: 0.8222, y: 0.8999), CGPoint(x: 0.8010, y: 0.9042), CGPoint(x: 0.8303, y: 0.8691), CGPoint(x: 0.8799, y: 0.8510)],
+    ],
+    "θ": [
+        [CGPoint(x: 0.3042, y: 0.4887), CGPoint(x: 0.2922, y: 0.5783), CGPoint(x: 0.3325, y: 0.7260), CGPoint(x: 0.3693, y: 0.7886), CGPoint(x: 0.4619, y: 0.8465), CGPoint(x: 0.5604, y: 0.8560), CGPoint(x: 0.6590, y: 0.8219), CGPoint(x: 0.7421, y: 0.7331), CGPoint(x: 0.7858, y: 0.6482), CGPoint(x: 0.8141, y: 0.5537), CGPoint(x: 0.8243, y: 0.4292), CGPoint(x: 0.8081, y: 0.3292), CGPoint(x: 0.7704, y: 0.2364), CGPoint(x: 0.6444, y: 0.0841), CGPoint(x: 0.5630, y: 0.0278), CGPoint(x: 0.4799, y: 0.0000), CGPoint(x: 0.4010, y: 0.0047), CGPoint(x: 0.2931, y: 0.0817), CGPoint(x: 0.1825, y: 0.2681), CGPoint(x: 0.1225, y: 0.4673)],
+        [CGPoint(x: 0.0000, y: 0.5260), CGPoint(x: 0.2828, y: 0.5332), CGPoint(x: 0.4644, y: 0.5181), CGPoint(x: 1.0000, y: 0.4069)],
     ],
 ]
