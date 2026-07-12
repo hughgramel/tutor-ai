@@ -1,4 +1,4 @@
-# tutor-ai — AI math tutor
+# iStudy — AI math tutor
 
 An AI tutor that **sits on the page with you**. iPad + Apple Pencil. It watches your
 handwriting, talks to you, works examples **by hand on its own page** — and **never gives you
