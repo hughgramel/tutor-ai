@@ -9,8 +9,34 @@ import SwiftUI
 enum Annotation: Equatable {
     case circle(Mark)
     case underline(Mark)
+    /// Killed (Hugh, 2026-07-12: "remove the highlighting tool it looks
+    /// ugly, pointing is better"). `TutorCoordinator.dispatch(_:)` drops
+    /// every `[HIGHLIGHT:id]` tag before it ever reaches `perform(_:)`, so
+    /// this case — and `style(for:)`'s `.highlight` arm below,
+    /// `RoughGeometry.highlightPath` — are dead code kept dormant rather
+    /// than ripped out: cheap to leave, and it means a stray `.highlight`
+    /// reaching this file some other way (a future caller, a test) still
+    /// renders something sane instead of hitting an exhaustiveness gap.
     case highlight(Mark)
     case arrow(from: Mark, to: Mark)
+
+    /// The tutor's own drawn diagram (`[SHAPE:...]`). Unlike the three
+    /// cases above, this isn't anchored to existing ink via a `Mark` —
+    /// `points` are normalized `0...1` vertices (see `TutorTag.shape`'s doc
+    /// for why that's the one sanctioned exception to "the model never
+    /// emits coordinates"), scaled by `performShape` into `box`. `box` is
+    /// computed by `TutorCoordinator` (`nextShapeBox()`), not by this file —
+    /// same placement law as `[WRITE:...]` (Hugh, 2026-07-12: "on the
+    /// user's actual canvas... below the student's most recent work"),
+    /// falling back to `RoughGeometry.shapeContentBox`'s fixed right-half
+    /// box only when there's no room left below the work. This type just
+    /// scales `points` into whatever `box` it's handed. Also unlike the
+    /// three cases above, a shape does NOT flow through `AnnotationQueue`/
+    /// `performAnimated`'s hold-then-fade lifecycle — `perform(_:)` routes
+    /// it straight to `performShape`, and it stays on screen until
+    /// `clearShapes()` removes it (it's the tutor's diagram, not a
+    /// transient pointer gesture).
+    case shape(kind: String, points: [CGPoint], label: String?, box: CGRect)
 }
 
 // MARK: - Queue
@@ -138,6 +164,18 @@ enum RoughGeometry {
         return path
     }
 
+    /// Grows `bbox` symmetrically around its center so neither dimension is
+    /// smaller than `minDimension`. A written-mark bbox is a single glyph
+    /// (~20-40pt) — circling it at its raw size reads as a scribble on top
+    /// of the character, not a deliberate circle around it (Hugh,
+    /// 2026-07-12 addendum).
+    static func minimumCircleBBox(_ bbox: CGRect, minDimension: CGFloat = 34) -> CGRect {
+        guard bbox.width < minDimension || bbox.height < minDimension else { return bbox }
+        let width = max(bbox.width, minDimension)
+        let height = max(bbox.height, minDimension)
+        return CGRect(x: bbox.midX - width / 2, y: bbox.midY - height / 2, width: width, height: height)
+    }
+
     /// The full wobbly-circle path around `bbox` — 4 jittered control
     /// points, closed Catmull-Rom.
     static func wobbleEllipsePath(
@@ -227,10 +265,63 @@ enum RoughGeometry {
         return CGPoint(x: x, y: y)
     }
 
+    /// True when `a` and `b` sit on roughly the same line of writing:
+    /// either their bboxes overlap vertically, or the vertical gap between
+    /// their centers is small relative to the horizontal gap. Decides
+    /// whether `arrowPath` renders a same-line "distribution arc" (bows up,
+    /// never crosses the written line) or the generic perpendicular arc
+    /// (different lines, e.g. pointing down from one step to the next).
+    static func isSameLine(_ a: CGRect, _ b: CGRect) -> Bool {
+        if a.minY < b.maxY && b.minY < a.maxY { return true } // vertical overlap
+        let dy = abs(a.midY - b.midY)
+        let dx = abs(a.midX - b.midX)
+        guard dx > 0 else { return false }
+        return dy < dx * 0.5
+    }
+
+    /// A same-line "distribution arc" (Hugh, 2026-07-12: "make sure we can
+    /// correctly render arc circles underneath" — the demo's rainbow-arc
+    /// moment, e.g. showing 2 distributing into `(x+5)`). The generic
+    /// perpendicular-offset `arcControlPoint` above doesn't guarantee a
+    /// direction, so a same-line pair could bow DOWN through the written
+    /// line depending on which mark comes first. This forces the control
+    /// point above both glyphs' top edges, arc height proportional to
+    /// horizontal distance (clamped 12...60), tip landing at the TARGET's
+    /// top edge (not its buried center) — always lifts off the page, never
+    /// crosses the ink.
+    static func distributionArcPath(from fromRect: CGRect, to toRect: CGRect) -> (path: CGPath, controlPoint: CGPoint) {
+        let start = CGPoint(x: fromRect.midX, y: fromRect.minY)
+        let end = CGPoint(x: toRect.midX, y: toRect.minY)
+        let dx = abs(end.x - start.x)
+        let arcHeight = min(max(dx * 0.35, 12), 60)
+        let control = CGPoint(x: (start.x + end.x) / 2, y: min(fromRect.minY, toRect.minY) - arcHeight)
+
+        let path = CGMutablePath()
+        path.move(to: start)
+        path.addQuadCurve(to: end, control: control)
+
+        let tangent = quadraticTangent(at: 1.0, p0: start, p1: control, p2: end)
+        let angle = atan2(tangent.y, tangent.x)
+        let headLength: CGFloat = 12
+        let headAngle: CGFloat = .pi / 7
+        let left = CGPoint(x: end.x - headLength * cos(angle - headAngle), y: end.y - headLength * sin(angle - headAngle))
+        let right = CGPoint(x: end.x - headLength * cos(angle + headAngle), y: end.y - headLength * sin(angle + headAngle))
+        path.addLine(to: left)
+        path.move(to: end)
+        path.addLine(to: right)
+
+        return (path, control)
+    }
+
     /// A curved arrow from `fromRect` to `toRect`, arrowhead baked into the
     /// tail of the same `CGPath` so animating `strokeEnd` 0→1 draws the
-    /// shaft first and the tip last for free.
+    /// shaft first and the tip last for free. Same-line pairs (`isSameLine`)
+    /// route to `distributionArcPath` instead — see its doc.
     static func arrowPath(from fromRect: CGRect, to toRect: CGRect, seed: UInt64 = 1) -> (path: CGPath, controlPoint: CGPoint) {
+        if isSameLine(fromRect, toRect) {
+            return distributionArcPath(from: fromRect, to: toRect)
+        }
+
         let fromCenter = CGPoint(x: fromRect.midX, y: fromRect.midY)
         let toCenter = CGPoint(x: toRect.midX, y: toRect.midY)
         let start = pointOnEdge(of: fromRect, towards: toCenter)
@@ -374,6 +465,119 @@ enum RoughGeometry {
         }
         return last == .closeSubpath
     }
+
+    // MARK: - SHAPE geometry (normalized vertices -> page-space diagram)
+
+    /// Maps `points` (each `x`/`y` normalized `0...1`) into `rect`,
+    /// top-left-anchored: `(0,0)` -> `rect.origin`, `(1,1)` ->
+    /// `rect.origin + rect.size`. Pure, so scaling is testable without a
+    /// live view.
+    static func scaleNormalizedPoints(_ points: [CGPoint], into rect: CGRect) -> [CGPoint] {
+        points.map { CGPoint(x: rect.minX + $0.x * rect.width, y: rect.minY + $0.y * rect.height) }
+    }
+
+    /// The FALLBACK page-space box a `[SHAPE:...]` diagram draws into: the
+    /// right half of the shared page, inset on all sides. `TutorCoordinator
+    /// .nextShapeBox()` only reaches for this when there's no room left
+    /// below the student's work (Hugh, 2026-07-12 revision: primary
+    /// placement is "on the user's actual canvas... below the student's
+    /// most recent work," matching `[WRITE:...]`'s law — this box is the
+    /// same "overflow to the right" escape hatch WRITE falls back to).
+    static func shapeContentBox(pageSize: CGSize, insetFraction: CGFloat = 0.12) -> CGRect {
+        let rightHalf = CGRect(x: pageSize.width * 0.5, y: 0, width: pageSize.width * 0.5, height: pageSize.height)
+        return rightHalf.insetBy(dx: rightHalf.width * insetFraction, dy: rightHalf.height * insetFraction)
+    }
+
+    /// Axis-aligned bounding box of `points`. `.zero` for an empty array —
+    /// callers that care (`jitterVertices`) already guard emptiness
+    /// separately.
+    static func boundingBox(of points: [CGPoint]) -> CGRect {
+        guard let first = points.first else { return .zero }
+        var minX = first.x, maxX = first.x, minY = first.y, maxY = first.y
+        for p in points.dropFirst() {
+            minX = min(minX, p.x); maxX = max(maxX, p.x)
+            minY = min(minY, p.y); maxY = max(maxY, p.y)
+        }
+        return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+    }
+
+    /// The centroid (mean) of `points` — where a shape's label lands.
+    static func centroid(of points: [CGPoint]) -> CGPoint {
+        guard !points.isEmpty else { return .zero }
+        let sum = points.reduce(CGPoint.zero) { CGPoint(x: $0.x + $1.x, y: $0.y + $1.y) }
+        return CGPoint(x: sum.x / CGFloat(points.count), y: sum.y / CGFloat(points.count))
+    }
+
+    /// Nudges each of `points` by up to `jitterFraction` of the shape's own
+    /// bounding-box diagonal, in a random direction — the same
+    /// "off by a jittered amount" idea `wobblePoints` uses for the ellipse
+    /// case, generalized to arbitrary vertices (a polygon/curve's own
+    /// corners) instead of points sampled off a bbox perimeter.
+    static func jitterVertices(_ points: [CGPoint], jitterFraction: CGFloat = 0.02, seed: UInt64 = 1) -> [CGPoint] {
+        guard !points.isEmpty else { return points }
+        var rng = SeededGenerator(seed: seed)
+        let diagonal = hypot(boundingBox(of: points).width, boundingBox(of: points).height)
+        let maxJitter = max(diagonal * jitterFraction, 1)
+        return points.map { p in
+            let angle = CGFloat.random(in: 0...(2 * .pi), using: &rng)
+            let magnitude = CGFloat.random(in: 0...maxJitter, using: &rng)
+            return CGPoint(x: p.x + cos(angle) * magnitude, y: p.y + sin(angle) * magnitude)
+        }
+    }
+
+    /// Closed wobbly polygon through `points` (already page-space, already
+    /// jittered by the caller if desired) — same Catmull-Rom-through-
+    /// jittered-points family as `wobbleEllipsePath`, but through the
+    /// caller's own vertices instead of points sampled off an ellipse, so a
+    /// 3-vertex triangle reads as a triangle, not a circle.
+    static func wobblePolygonPath(through points: [CGPoint], jitterFraction: CGFloat = 0.015, seed: UInt64 = 1) -> CGPath {
+        catmullRomClosed(jitterVertices(points, jitterFraction: jitterFraction, seed: seed))
+    }
+
+    /// A single hand-drawn segment from `start` to `end` — `line`'s
+    /// primitive. Slight perpendicular bow at the midpoint (same idea as
+    /// `underlinePath`'s sag) so it reads as drawn, not ruled.
+    static func wobblyLinePath(from start: CGPoint, to end: CGPoint, bowFraction: CGFloat = 0.03, seed: UInt64 = 1) -> CGPath {
+        var rng = SeededGenerator(seed: seed)
+        let mid = CGPoint(x: (start.x + end.x) / 2, y: (start.y + end.y) / 2)
+        let dx = end.x - start.x
+        let dy = end.y - start.y
+        let dist = hypot(dx, dy)
+        let perp = dist > 0 ? CGPoint(x: -dy / dist, y: dx / dist) : .zero
+        let bow = dist * bowFraction * CGFloat.random(in: 0.5...1.5, using: &rng)
+        let control = CGPoint(x: mid.x + perp.x * bow, y: mid.y + perp.y * bow)
+
+        let path = CGMutablePath()
+        path.move(to: start)
+        path.addQuadCurve(to: end, control: control)
+        return path
+    }
+
+    /// A smooth curve threaded through `points` (already page-space) —
+    /// `curve`'s primitive. Standard "smooth polyline" quad-curve chaining:
+    /// each interior point is a quadratic control point, and the curve's
+    /// actual on-path anchors are the midpoints between consecutive
+    /// points — so with exactly 3 points this is one continuous
+    /// `addQuadCurve(to: points[2], control: points[1])` (start and end are
+    /// ON the curve, the middle point pulls it), and with more points it
+    /// keeps reading as one continuous bend instead of visible joints.
+    static func quadraticCurvePath(through points: [CGPoint]) -> CGPath {
+        let path = CGMutablePath()
+        guard let first = points.first else { return path }
+        path.move(to: first)
+        guard points.count >= 3 else {
+            if points.count == 2 { path.addLine(to: points[1]) }
+            return path
+        }
+        for i in 1..<(points.count - 1) {
+            let control = points[i]
+            let next = points[i + 1]
+            let isLastSegment = i == points.count - 2
+            let end = isLastSegment ? next : CGPoint(x: (control.x + next.x) / 2, y: (control.y + next.y) / 2)
+            path.addQuadCurve(to: end, control: control)
+        }
+        return path
+    }
 }
 
 // MARK: - Pointer
@@ -465,6 +669,14 @@ final class AnnotationOverlayView: UIView {
     /// finishes (fly → draw → hold → fade), enforcing "one visual action at
     /// a time."
     func perform(_ annotation: Annotation) {
+        // `.shape` has its own lifecycle (no hold+fade, stays until
+        // `clearShapes()`), so it bypasses `AnnotationQueue` entirely
+        // instead of forcing that queue's fly/draw/hold/fade shape onto a
+        // primitive that doesn't fade. See `Annotation.shape`'s doc.
+        if case .shape(let kind, let points, let label, let box) = annotation {
+            performShape(kind: kind, points: points, label: label, box: box)
+            return
+        }
         if queue.enqueue(annotation) {
             runCurrent()
         }
@@ -487,7 +699,8 @@ final class AnnotationOverlayView: UIView {
         let seed = UInt64.random(in: 1...UInt64.max) // no two renders identical
         switch annotation {
         case .circle(let mark):
-            return (RoughGeometry.wobbleEllipsePath(around: mark.bbox, seed: seed), .systemRed, 3)
+            let bbox = RoughGeometry.minimumCircleBBox(mark.bbox)
+            return (RoughGeometry.wobbleEllipsePath(around: bbox, seed: seed), .systemRed, 3)
         case .underline(let mark):
             return (RoughGeometry.underlinePath(under: mark.bbox, seed: seed), .systemRed, 3)
         case .highlight(let mark):
@@ -495,6 +708,11 @@ final class AnnotationOverlayView: UIView {
             return (RoughGeometry.highlightPath(over: mark.bbox), UIColor.systemYellow.withAlphaComponent(0.4), lineWidth)
         case .arrow(let from, let to):
             return (RoughGeometry.arrowPath(from: from.bbox, to: to.bbox, seed: seed).path, .systemRed, 3)
+        case .shape:
+            // Unreachable: `perform(_:)` routes `.shape` straight to
+            // `performShape` before it ever reaches the queue/`style(for:)`.
+            // This arm exists only so the switch above stays exhaustive.
+            preconditionFailure("Annotation.shape bypasses performAnimated; see performShape")
         }
     }
 
@@ -588,6 +806,116 @@ final class AnnotationOverlayView: UIView {
                 }
             }
         }
+    }
+
+    // MARK: - SHAPE primitive (diagrams the tutor draws on its own page)
+
+    /// Rounded system font — reads as "a tutor's board hand", same
+    /// convention `TutorWriter.fallbackFont` uses for its `CATextLayer`
+    /// fallback glyphs.
+    private static let shapeLabelFont: UIFont = {
+        let base = UIFont.systemFont(ofSize: 15, weight: .medium)
+        let descriptor = base.fontDescriptor.withDesign(.rounded) ?? base.fontDescriptor
+        return UIFont(descriptor: descriptor, size: 15)
+    }()
+
+    /// Every shape/label layer currently on screen — tracked so
+    /// `clearShapes()` can remove exactly them, nothing else.
+    private var shapeLayers: [CAShapeLayer] = []
+    private var shapeLabelLayers: [CATextLayer] = []
+
+    /// Removes every `[SHAPE:...]` diagram drawn so far. Shapes don't
+    /// auto-fade the way `.circle`/`.underline`/`.highlight`/`.arrow` do
+    /// (they're the tutor's own diagram, meant to stay up while it's being
+    /// discussed) — this is the explicit clear, e.g. on `[NEWPAGE]` or
+    /// whenever the caller decides the diagram is done being useful.
+    func clearShapes() {
+        shapeLayers.forEach { $0.removeFromSuperlayer() }
+        shapeLayers.removeAll()
+        shapeLabelLayers.forEach { $0.removeFromSuperlayer() }
+        shapeLabelLayers.removeAll()
+    }
+
+    /// Draws one `[SHAPE:...]` diagram: scales `points` into `box` (computed
+    /// upstream by `TutorCoordinator.nextShapeBox()` — see `Annotation.shape`'s
+    /// doc), builds the wobbly path for `kind`, and animates it in with the
+    /// same `strokeEnd` 0->1 draw-in language `performAnimated` uses — but
+    /// pen-style (solid black, 3pt: it's the tutor DRAWING, not annotating
+    /// existing ink in red) and with no pointer flight, no hold timer, no
+    /// fade. Deliberately a separate method rather than a branch inside
+    /// `performAnimated`, so this file's existing animation function is
+    /// untouched.
+    private func performShape(kind: String, points: [CGPoint], label: String?, box: CGRect) {
+        guard points.count >= 2 else {
+            TutorLog.shared.info("AnnotationOverlayView: dropped SHAPE:\(kind) — fewer than 2 points")
+            return
+        }
+
+        let scaled = RoughGeometry.scaleNormalizedPoints(points, into: box)
+        let seed = UInt64.random(in: 1...UInt64.max) // no two renders identical
+
+        let path: CGPath
+        switch kind {
+        case "polygon":
+            path = RoughGeometry.wobblePolygonPath(through: scaled, seed: seed)
+        case "curve":
+            path = RoughGeometry.quadraticCurvePath(through: RoughGeometry.jitterVertices(scaled, jitterFraction: 0.015, seed: seed))
+        default: // "line", and any other kind that somehow made it past the parser
+            path = RoughGeometry.wobblyLinePath(from: scaled.first!, to: scaled.last!, seed: seed)
+        }
+
+        let shapeLayer = CAShapeLayer()
+        shapeLayer.path = path
+        shapeLayer.fillColor = UIColor.clear.cgColor
+        shapeLayer.strokeColor = UIColor.black.cgColor
+        shapeLayer.lineWidth = 3
+        shapeLayer.lineCap = .round
+        shapeLayer.lineJoin = .round
+        shapeLayer.strokeEnd = 0
+        layer.addSublayer(shapeLayer)
+        shapeLayers.append(shapeLayer)
+
+        let pathLength = RoughGeometry.approximateLength(of: path)
+        let drawDuration = 0.3 + Double(pathLength / 1200)
+        let draw = CABasicAnimation(keyPath: "strokeEnd")
+        draw.fromValue = 0
+        draw.toValue = 1
+        draw.duration = drawDuration
+        draw.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        shapeLayer.strokeEnd = 1
+        shapeLayer.add(draw, forKey: "draw")
+
+        guard let label, !label.isEmpty else { return }
+        addShapeLabel(label, centeredAt: RoughGeometry.centroid(of: scaled), afterDelay: drawDuration)
+    }
+
+    /// The shape's label: small handwriting-adjacent text (same rounded
+    /// font family `TutorWriter`'s fallback glyphs use) fading in near the
+    /// shape's centroid once the shape itself finishes drawing.
+    private func addShapeLabel(_ text: String, centeredAt centroid: CGPoint, afterDelay delay: TimeInterval) {
+        let font = Self.shapeLabelFont
+        let size = (text as NSString).size(withAttributes: [.font: font])
+
+        let textLayer = CATextLayer()
+        textLayer.string = text
+        textLayer.font = font.fontName as CFTypeRef
+        textLayer.fontSize = font.pointSize
+        textLayer.foregroundColor = UIColor.black.cgColor
+        textLayer.alignmentMode = .center
+        textLayer.contentsScale = UIScreen.main.scale
+        textLayer.frame = CGRect(x: centroid.x - size.width / 2, y: centroid.y - size.height / 2, width: size.width, height: size.height)
+        textLayer.opacity = 0
+        layer.addSublayer(textLayer)
+        shapeLabelLayers.append(textLayer)
+
+        let fadeIn = CABasicAnimation(keyPath: "opacity")
+        fadeIn.fromValue = 0
+        fadeIn.toValue = 1
+        fadeIn.duration = 0.3
+        fadeIn.beginTime = CACurrentMediaTime() + delay
+        fadeIn.fillMode = .forwards
+        textLayer.opacity = 1
+        textLayer.add(fadeIn, forKey: "labelFadeIn")
     }
 }
 

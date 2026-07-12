@@ -137,12 +137,68 @@ final class AnnotationGeometryTests: XCTestCase {
     }
 
     func testArrowPathStartsAndEndsNearMarkEdgesNotCenters() {
+        // Genuinely different-line pair (dy well past isSameLine's dx*0.5
+        // threshold) so this exercises the generic pointOnEdge/
+        // arcControlPoint path, not the same-line distribution-arc path
+        // below — also doubles as the "different-line arrows unchanged"
+        // regression test from Hugh's 2026-07-12 arc-up addendum.
         let from = CGRect(x: 0, y: 0, width: 40, height: 20)
-        let to = CGRect(x: 200, y: 0, width: 40, height: 20)
+        let to = CGRect(x: 60, y: 300, width: 40, height: 20)
+        XCTAssertFalse(RoughGeometry.isSameLine(from, to))
         let result = RoughGeometry.arrowPath(from: from, to: to, seed: 1)
         let start = RoughGeometry.startPoint(of: result.path)
-        XCTAssertGreaterThanOrEqual(start.x, from.maxX - 0.001, "arrow should start at from's edge, not inside its ink")
-        XCTAssertLessThanOrEqual(start.x, to.minX)
+        XCTAssertFalse(from.insetBy(dx: 0.001, dy: 0.001).contains(start), "arrow should start at from's edge, not inside its ink")
+    }
+
+    // MARK: - Same-line distribution arcs (Hugh, 2026-07-12: "make sure we
+    // can correctly render arc circles underneath" — rainbow arcs must bow
+    // UP, never down through the written line)
+
+    func testSameLineArrowControlPointBowsAboveBothBoxes() {
+        let from = CGRect(x: 0, y: 500, width: 30, height: 30) // e.g. the "2"
+        let to = CGRect(x: 200, y: 500, width: 40, height: 30) // e.g. "(x+5)"
+        XCTAssertTrue(RoughGeometry.isSameLine(from, to))
+        let result = RoughGeometry.arrowPath(from: from, to: to, seed: 1)
+        XCTAssertLessThan(result.controlPoint.y, from.minY, "control point must be above the source glyph")
+        XCTAssertLessThan(result.controlPoint.y, to.minY, "control point must be above the target glyph")
+
+        // The quad curve's own destination (not `RoughGeometry.endPoint`,
+        // which walks to the LAST element — the arrowhead's second flank
+        // line — not the tip) lands right at the target's top edge, not
+        // its buried center.
+        var quadCurveEnd: CGPoint = .zero
+        result.path.applyWithBlock { elementPointer in
+            if elementPointer.pointee.type == .addQuadCurveToPoint {
+                quadCurveEnd = elementPointer.pointee.points[1]
+            }
+        }
+        XCTAssertEqual(quadCurveEnd.x, to.midX, accuracy: 0.001)
+        XCTAssertEqual(quadCurveEnd.y, to.minY, accuracy: 0.001)
+    }
+
+    func testSameLineArrowArcHeightScalesWithDistanceAndClamps() {
+        let near = RoughGeometry.arrowPath(from: CGRect(x: 0, y: 0, width: 20, height: 20), to: CGRect(x: 20, y: 0, width: 20, height: 20))
+        XCTAssertEqual(near.controlPoint.y, -12, accuracy: 0.001, "short hop clamps to the 12pt floor")
+
+        let far = RoughGeometry.arrowPath(from: CGRect(x: 0, y: 0, width: 20, height: 20), to: CGRect(x: 1000, y: 0, width: 20, height: 20))
+        XCTAssertEqual(far.controlPoint.y, -60, accuracy: 0.001, "long hop clamps to the 60pt ceiling")
+    }
+
+    // MARK: - Minimum circle size (Hugh, 2026-07-12 addendum: single
+    // written glyphs are ~20-40pt, circle them at the same reading size)
+
+    func testMinimumCircleBBoxLeavesLargeBoxesUntouched() {
+        let bbox = CGRect(x: 10, y: 10, width: 100, height: 40)
+        XCTAssertEqual(RoughGeometry.minimumCircleBBox(bbox), bbox)
+    }
+
+    func testMinimumCircleBBoxGrowsTinyGlyphSymmetricallyAroundCenter() {
+        let bbox = CGRect(x: 100, y: 100, width: 18, height: 22) // a single "2"
+        let grown = RoughGeometry.minimumCircleBBox(bbox, minDimension: 34)
+        XCTAssertEqual(grown.width, 34, accuracy: 0.001)
+        XCTAssertEqual(grown.height, 34, accuracy: 0.001)
+        XCTAssertEqual(grown.midX, bbox.midX, accuracy: 0.001, "grows around the same center, doesn't shift the circle off the glyph")
+        XCTAssertEqual(grown.midY, bbox.midY, accuracy: 0.001)
     }
 
     // MARK: - Flight timing (ported from OverlayWindow.animateBezierFlightArc)
@@ -237,5 +293,109 @@ final class AnnotationGeometryTests: XCTestCase {
         queue.finishCurrent() // no-op, must not crash
         XCTAssertFalse(queue.isRunning)
         XCTAssertNil(queue.current)
+    }
+
+    // MARK: - SHAPE geometry: normalized -> page-space scaling
+
+    func testScaleNormalizedPointsMapsUnitSquareCorners() {
+        let rect = CGRect(x: 100, y: 200, width: 400, height: 800)
+        let unitSquare = [CGPoint(x: 0, y: 0), CGPoint(x: 1, y: 0), CGPoint(x: 1, y: 1), CGPoint(x: 0, y: 1)]
+        let scaled = RoughGeometry.scaleNormalizedPoints(unitSquare, into: rect)
+        XCTAssertEqual(scaled, [
+            CGPoint(x: 100, y: 200),
+            CGPoint(x: 500, y: 200),
+            CGPoint(x: 500, y: 1000),
+            CGPoint(x: 100, y: 1000),
+        ])
+    }
+
+    func testScaleNormalizedPointsMapsMidpointToRectCenter() {
+        let rect = CGRect(x: 0, y: 0, width: 200, height: 100)
+        let scaled = RoughGeometry.scaleNormalizedPoints([CGPoint(x: 0.5, y: 0.5)], into: rect)
+        XCTAssertEqual(scaled, [CGPoint(x: 100, y: 50)])
+    }
+
+    func testShapeContentBoxIsInsetFromRightHalfOfPage() {
+        // Post-pivot: SHAPE lands in the right half of the shared page, not
+        // the full page — same rule WRITE follows (Hugh, 2026-07-12: no
+        // separate tutor page, diagrams land beside the student's ink).
+        let pageSize = CGSize(width: 1000, height: 500)
+        let box = RoughGeometry.shapeContentBox(pageSize: pageSize, insetFraction: 0.1)
+        XCTAssertEqual(box, CGRect(x: 550, y: 50, width: 400, height: 400))
+    }
+
+    // MARK: - SHAPE geometry: centroid / bounding box
+
+    func testCentroidOfSquareIsItsCenter() {
+        let square = [CGPoint(x: 0, y: 0), CGPoint(x: 10, y: 0), CGPoint(x: 10, y: 10), CGPoint(x: 0, y: 10)]
+        XCTAssertEqual(RoughGeometry.centroid(of: square), CGPoint(x: 5, y: 5))
+    }
+
+    func testBoundingBoxOfPoints() {
+        let points = [CGPoint(x: 3, y: 7), CGPoint(x: -2, y: 1), CGPoint(x: 5, y: -4)]
+        let box = RoughGeometry.boundingBox(of: points)
+        XCTAssertEqual(box, CGRect(x: -2, y: -4, width: 7, height: 11))
+    }
+
+    // MARK: - SHAPE geometry: vertex jitter
+
+    func testJitterVerticesDeterministicUnderSameSeed() {
+        let points = [CGPoint(x: 0, y: 0), CGPoint(x: 100, y: 0), CGPoint(x: 50, y: 100)]
+        let a = RoughGeometry.jitterVertices(points, seed: 11)
+        let b = RoughGeometry.jitterVertices(points, seed: 11)
+        XCTAssertEqual(a, b)
+    }
+
+    func testJitterVerticesStaysNearOriginalVertex() {
+        let points = [CGPoint(x: 0, y: 0), CGPoint(x: 100, y: 0), CGPoint(x: 50, y: 100)]
+        let jittered = RoughGeometry.jitterVertices(points, jitterFraction: 0.02, seed: 3)
+        let diagonal = hypot(RoughGeometry.boundingBox(of: points).width, RoughGeometry.boundingBox(of: points).height)
+        for (original, moved) in zip(points, jittered) {
+            let distance = hypot(moved.x - original.x, moved.y - original.y)
+            XCTAssertLessThanOrEqual(distance, diagonal * 0.02 + 0.001)
+        }
+    }
+
+    // MARK: - SHAPE geometry: polygon closure
+
+    func testWobblePolygonPathClosesForTriangle() {
+        let triangle = [CGPoint(x: 0, y: 100), CGPoint(x: 100, y: 100), CGPoint(x: 50, y: 0)]
+        let path = RoughGeometry.wobblePolygonPath(through: triangle, seed: 4)
+        XCTAssertTrue(RoughGeometry.endsWithCloseSubpath(path), "shape polygon must close")
+        XCTAssertFalse(path.isEmpty)
+    }
+
+    // MARK: - SHAPE geometry: line
+
+    func testWobblyLinePathStartsAndEndsAtGivenPoints() {
+        let start = CGPoint(x: 10, y: 10)
+        let end = CGPoint(x: 200, y: 150)
+        let path = RoughGeometry.wobblyLinePath(from: start, to: end, seed: 6)
+        XCTAssertEqual(RoughGeometry.startPoint(of: path), start)
+        XCTAssertEqual(RoughGeometry.endPoint(of: path), end)
+    }
+
+    // MARK: - SHAPE geometry: curve
+
+    func testQuadraticCurvePathThreePointsStartsAndEndsAtFirstAndLast() {
+        let points = [CGPoint(x: 0, y: 50), CGPoint(x: 50, y: 0), CGPoint(x: 100, y: 50)]
+        let path = RoughGeometry.quadraticCurvePath(through: points)
+        XCTAssertEqual(RoughGeometry.startPoint(of: path), points[0])
+        XCTAssertEqual(RoughGeometry.endPoint(of: path), points[2])
+    }
+
+    func testQuadraticCurvePathTwoPointsIsStraightLine() {
+        let points = [CGPoint(x: 0, y: 0), CGPoint(x: 40, y: 30)]
+        let path = RoughGeometry.quadraticCurvePath(through: points)
+        XCTAssertEqual(RoughGeometry.startPoint(of: path), points[0])
+        XCTAssertEqual(RoughGeometry.endPoint(of: path), points[1])
+        XCTAssertEqual(RoughGeometry.approximateLength(of: path), 50, accuracy: 0.001) // 3-4-5 triangle * 10
+    }
+
+    func testQuadraticCurvePathFourPointsStartsAndEndsAtFirstAndLast() {
+        let points = [CGPoint(x: 0, y: 0), CGPoint(x: 30, y: 60), CGPoint(x: 70, y: 60), CGPoint(x: 100, y: 0)]
+        let path = RoughGeometry.quadraticCurvePath(through: points)
+        XCTAssertEqual(RoughGeometry.startPoint(of: path), points[0])
+        XCTAssertEqual(RoughGeometry.endPoint(of: path), points[3])
     }
 }

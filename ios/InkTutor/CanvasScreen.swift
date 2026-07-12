@@ -2,88 +2,64 @@ import SwiftUI
 import UIKit
 import PDFKit
 
-/// App entry screen: the student's worksheet canvas, full-screen, plus the
-/// tutor's side panel. Opens directly onto the canvas — no landing screen
-/// (demo priority).
+/// App entry screen: one full-bleed student worksheet canvas. Opens directly
+/// onto the canvas — no landing screen (demo priority).
+///
+/// Pivot (Hugh, 2026-07-12: "remove the 'AI gets its own page', we can just
+/// work on the right alongside the user"): there used to be a second
+/// `PageModel` for a tutor side panel/popup page. That's gone — the tutor
+/// annotates and writes directly onto the student's own page, in the open
+/// space to the right of their ink (`TutorCoordinator.nextWriteOrigin()`
+/// owns that placement law). `studentPage` is handed to `TutorCoordinator`
+/// as BOTH its `studentPage` and `tutorPage` arguments (see that file's
+/// header comment) so its internal `.id`-keyed logic collapses onto one
+/// page for free.
 struct CanvasScreen: View {
-    /// Fraction of screen width the tutor's side panel occupies when open
-    /// (Hugh, 2026-07-12: side panel over popup — blank canvas, both pages
-    /// visible and usable at once for the two-way pointing demo moment).
-    private static let sidePanelWidthFraction: CGFloat = 0.45
     /// Page size in canvas points, origin top-left (Global Constraints).
     static let pageSize = CGSize(width: 768, height: 1024)
 
     @StateObject private var studentPage = PageModel(role: .student)
-    @StateObject private var tutorPage = PageModel(role: .tutor)
-    @State private var showTutorPage = false
 
     /// One shared realtime session for the whole screen — the voice bar
     /// drives it, and the student canvas pushes snapshots into it.
     private let session: TutorSession = RealtimeSession()
-    /// Routes `TutorCoordinator`'s annotate calls to whichever page's
-    /// `AnnotationOverlayView` matches, by `PageModel.role` (there's exactly
-    /// one overlay per role in this screen, so role stands in for the
-    /// identity check the coordinator's own wiring note describes). No
-    /// dependency on `studentPage`/`tutorPage` themselves, so it can be a
-    /// plain stored property (no init-ordering issue) and both pages'
-    /// `PageCanvasRepresentable`s can register into it as soon as their
-    /// overlays exist, independent of when `coordinator` itself is built.
+    /// Routes `TutorCoordinator`'s annotate calls to the one page's
+    /// `AnnotationOverlayView`. A plain stored property (no init-ordering
+    /// issue), so the canvas's `onOverlayReady` can register into it
+    /// independent of when `coordinator` itself is built.
     private let performer = TutorAnnotationPerformer()
-    /// Bridges the coordinator's synchronous `writeHandler` to the tutor
-    /// page's `TutorWriter`, which may not exist yet the instant a
-    /// `[WRITE:...]` tag fires (see `TutorWriteRouter`'s doc comment).
+    /// Bridges the coordinator's `writeHandler` closure to the page's
+    /// `TutorWriter`.
     private let writeRouter = TutorWriteRouter()
-    /// Built once, lazily, in `.onAppear` — `TutorCoordinator`'s
-    /// `openTutorPage` closure needs to capture `self` to flip
-    /// `showTutorPage`, which Swift only allows once this view's `init` has
-    /// fully finished (definite-initialization rules forbid escaping `self`
-    /// from inside `init` itself).
+    /// Built once, lazily, in `.onAppear` — mirrors the previous
+    /// `openTutorPage`-must-capture-`self` constraint even though that
+    /// closure is gone now, so this stays consistent with
+    /// `attachCoordinatorIfNeeded`'s definite-initialization timing.
     @State private var coordinator: TutorCoordinator?
 
     var body: some View {
-        GeometryReader { geo in
-            HStack(spacing: 0) {
-                ZStack {
-                    PageCanvasRepresentable(
-                        page: studentPage,
-                        pageSize: Self.pageSize,
-                        session: session,
-                        tutorCoordinator: coordinator,
-                        onOverlayReady: { performer.studentOverlay = $0 }
-                    )
-                    .ignoresSafeArea()
+        ZStack {
+            PageCanvasRepresentable(
+                page: studentPage,
+                pageSize: Self.pageSize,
+                session: session,
+                tutorCoordinator: coordinator,
+                onOverlayReady: { performer.overlay = $0 },
+                onWriterReady: { writeRouter.attach(writer: $0) }
+            )
+            .ignoresSafeArea()
 
-                    VStack {
-                        HStack {
-                            Spacer()
-                            if let coordinator {
-                                VoiceBarView(session: session, coordinator: coordinator)
-                            }
-                        }
-                        Spacer()
+            VStack {
+                HStack {
+                    Spacer()
+                    if let coordinator {
+                        VoiceBarView(session: session, coordinator: coordinator)
                     }
-                    .padding()
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-                // (Example button removed — the tutor panel opens via [NEWPAGE]
-                // once the coordinator is wired; showTutorPage stays for that.)
-
-                if showTutorPage, let coordinator {
-                    TutorSidePanel(
-                        page: tutorPage,
-                        pageSize: Self.pageSize,
-                        isPresented: $showTutorPage,
-                        coordinator: coordinator,
-                        onOverlayReady: { performer.tutorOverlay = $0 },
-                        onWriterReady: { writeRouter.attach(writer: $0) }
-                    )
-                    .frame(width: geo.size.width * Self.sidePanelWidthFraction, height: geo.size.height)
-                    .transition(.move(edge: .trailing))
-                }
+                Spacer()
             }
+            .padding()
         }
-        .animation(.spring(response: 0.4, dampingFraction: 0.85), value: showTutorPage)
         // PDF underlay disabled for now (Hugh, 2026-07-12): blank canvas, tutor
         // reads the ink alone. Re-enable by restoring this call.
         // .onAppear(perform: loadAssignmentPDF)
@@ -91,25 +67,22 @@ struct CanvasScreen: View {
     }
 
     /// Wiring Step 1: the screen's one `TutorCoordinator`, built once. Not a
-    /// stored-property default (`= TutorCoordinator(...)`) because
-    /// `openTutorPage: { showTutorPage = true }` has to capture `self`,
-    /// which can't happen inside this struct's own `init`.
+    /// stored-property default (`= TutorCoordinator(...)`) so it stays
+    /// consistent with the view's other `.onAppear`-timed setup.
     private func attachCoordinatorIfNeeded() {
         guard coordinator == nil else { return }
         coordinator = TutorCoordinator(
             session: session,
             studentPage: studentPage,
-            tutorPage: tutorPage,
+            tutorPage: studentPage,
             pageSize: Self.pageSize,
             performer: performer,
-            openTutorPage: { showTutorPage = true },
-            writeHandler: { latex, anchor in await writeRouter.handle(latex: latex, anchor: anchor) },
+            writeHandler: { latex, origin in await writeRouter.handle(latex: latex, origin: origin) },
             writtenLayerProvider: { writeRouter.contentLayer }
         )
     }
 
     /// Renders page 1 of the bundled worksheet into `studentPage.pdfImage`.
-    /// Student page only — the tutor page never has a PDF underlay.
     private func loadAssignmentPDF() {
         guard studentPage.pdfImage == nil,
               // Real middle-school worksheet (Mashup Math, tutoring use permitted) —
@@ -122,187 +95,61 @@ struct CanvasScreen: View {
     }
 }
 
-/// The tutor's page as a side panel docked to the trailing edge (Hugh,
-/// 2026-07-12: "forget the popup — since we're doing a blank canvas let's
-/// have it on the side"). No scrim — the student's canvas stays live and
-/// interactive in the remaining width alongside this panel, so both pages
-/// are visible and usable at once (the two-way pointing demo moment).
-/// Closeable anytime; the PageModel survives dismissal so reopening
-/// restores the drawing.
-private struct TutorSidePanel: View {
-    @ObservedObject var page: PageModel
-    let pageSize: CGSize
-    @Binding var isPresented: Bool
-    /// Wiring Step 6: both dismiss paths below tell the coordinator the
-    /// panel closed, so `dispatchWrite`'s open-if-needed check stays
-    /// accurate (the coordinator can't observe `@State showTutorPage`
-    /// directly).
-    let coordinator: TutorCoordinator
-    var onOverlayReady: ((AnnotationOverlayView) -> Void)? = nil
-    var onWriterReady: ((TutorWriter) -> Void)? = nil
-
-    /// Width of the leading-edge grab strip that offers swipe-to-dismiss
-    /// without laying a gesture over the canvas itself (which would fight
-    /// PencilKit's own touch handling).
-    private static let grabStripWidth: CGFloat = 14
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Spacer()
-                Button {
-                    dismiss()
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.title2)
-                        .foregroundStyle(.secondary)
-                }
-                .padding(8)
-            }
-            .background(.white)
-
-            PageCanvasRepresentable(
-                page: page,
-                pageSize: pageSize,
-                onOverlayReady: onOverlayReady,
-                onWriterReady: onWriterReady
-            )
-        }
-        .background(.white)
-        .overlay(alignment: .leading) {
-            Rectangle()
-                .fill(Color.black.opacity(0.12))
-                .frame(width: 1)
-        }
-        .overlay(alignment: .leading) {
-            // Trivial swipe-to-dismiss win: a thin strip on the panel's own
-            // leading edge, not over the canvas, so it can't steal drawing
-            // touches.
-            Color.clear
-                .frame(width: Self.grabStripWidth)
-                .contentShape(Rectangle())
-                .gesture(
-                    DragGesture(minimumDistance: 12)
-                        .onEnded { value in
-                            if value.translation.width > 40 { dismiss() }
-                        }
-                )
-        }
-        .shadow(color: .black.opacity(0.2), radius: 12, x: -4, y: 0)
-    }
-
-    private func dismiss() {
-        isPresented = false
-        coordinator.notifyTutorPageClosed()
-    }
-}
-
 // MARK: - Wiring adapters (Task 7 wiring pass)
 
 /// `AnnotationPerforming` adapter `TutorCoordinator` dispatches annotate
-/// actions through (wiring Step 1/2). Routes by `PageModel.role` rather than
-/// object identity — equivalent here since the screen only ever has one
-/// student page and one tutor page, and it sidesteps needing either
-/// `PageModel` at construction time, which would otherwise force this to be
-/// built lazily alongside `coordinator` (see `CanvasScreen.coordinator`'s
-/// doc comment) instead of as a plain, always-available stored property that
-/// both pages' overlays can register into independent of coordinator timing.
+/// actions through (wiring Step 1/2). One overlay now that there's one page
+/// — kept as its own small type rather than inlined so `TutorCoordinator`
+/// doesn't need to know about `AnnotationOverlayView` directly.
 @MainActor
 private final class TutorAnnotationPerformer: AnnotationPerforming {
-    weak var studentOverlay: AnnotationOverlayView?
-    weak var tutorOverlay: AnnotationOverlayView?
+    weak var overlay: AnnotationOverlayView?
 
     func perform(_ annotation: Annotation, on page: PageModel) {
-        switch page.role {
-        case .student: studentOverlay?.perform(annotation)
-        case .tutor: tutorOverlay?.perform(annotation)
-        }
+        overlay?.perform(annotation)
     }
 }
 
-/// Bridges `TutorCoordinator`'s `writeHandler` closure to the tutor page's
-/// `TutorWriter` (wiring Step 3). Two problems this solves that a direct
-/// `{ latex, anchor in await writer.write(...) }` closure couldn't:
+/// Bridges `TutorCoordinator`'s `writeHandler` closure to the page's
+/// `TutorWriter` (wiring Step 3). Placement is no longer this type's
+/// problem — `TutorCoordinator.nextWriteOrigin()` computes the origin
+/// (right of the student's ink, stacked below the last write) and hands it
+/// down as a plain `CGPoint`; this type's only job is calling
+/// `TutorWriter.write(latex:at:height:)` with it.
 ///
-/// 1. **Timing:** `dispatchWrite` calls `openTutorPageIfNeeded()` then
-///    `await writeHandler(...)` back to back — but `showTutorPage` flipping
-///    true doesn't mount `TutorPagePopup`'s canvas (and therefore its
-///    `TutorWriter`) until SwiftUI's next render pass. A `[WRITE:...]` that
-///    opens the tutor page for the first time would otherwise hand a latex
-///    string to a writer that doesn't exist yet. `handle` suspends (via a
-///    buffered continuation) any write that arrives before `attach(writer:)`
-///    fires, and resumes it, in order, once it does — instead of firing a
-///    detached `Task` that `writeHandler`'s caller couldn't `await`, which
-///    is what a synchronous `handle` had to do before `WriteHandler` became
-///    `async`.
-/// 2. **Anchoring:** this type owns the running `lastRect` (`.belowLast`'s
-///    placement — see the doc comment on `write` below) across calls.
+/// No pending-write buffer (Hugh's pivot removed the popup-mount delay this
+/// used to paper over): the one canvas — and its `TutorWriter` — mounts at
+/// launch, well before a voice session can connect and a `[WRITE:...]` tag
+/// can fire, so `writer` is always set by the time `handle` is called. If
+/// that assumption ever breaks, `handle` drops the write and logs instead of
+/// hanging.
 @MainActor
 private final class TutorWriteRouter {
     private(set) weak var writer: TutorWriter?
-    private var lastRect: CGRect?
-    private var pending: [(latex: String, anchor: Anchor, continuation: CheckedContinuation<[TutorWriterLayout.GlyphPlacement], Never>)] = []
 
     /// The written glyph content, in page-point space — `TutorCoordinator`'s
     /// `writtenLayerProvider` reads this to composite the tutor's own
-    /// handwriting into the tutor page's snapshot (`TutorWriter.contentLayer`'s
+    /// handwriting into the shared page's snapshot (`TutorWriter.contentLayer`'s
     /// doc comment). `nil` until `attach(writer:)` fires, same as `writer`.
     var contentLayer: CALayer? { writer?.contentLayer }
 
-    /// Left margin + first line's top, and the vertical gap between
-    /// consecutive writes — arbitrary layout constants (no spec'd values),
-    /// chosen to sit comfortably inside `TutorPagePopup`'s card.
-    private static let leftMargin: CGFloat = 60
-    private static let topMargin: CGFloat = 80
+    /// Line height passed to `TutorWriter.write(latex:at:height:)` — no
+    /// spec'd value, chosen to match the previous popup-card layout.
     private static let lineHeight: CGFloat = 56
-    private static let lineGap: CGFloat = 24
 
     func attach(writer: TutorWriter) {
         self.writer = writer
-        let queued = pending
-        pending.removeAll()
-        for item in queued {
-            Task { @MainActor in
-                let placements = await self.write(latex: item.latex, anchor: item.anchor)
-                item.continuation.resume(returning: placements)
-            }
-        }
     }
 
     /// Returns the written glyphs' placements (empty if latex failed to
-    /// parse) once the write animation completes — matches `WriteHandler`'s
+    /// parse, or if no writer is attached yet) — matches `WriteHandler`'s
     /// contract exactly, so this can be handed to `TutorCoordinator` as-is.
-    func handle(latex: String, anchor: Anchor) async -> [TutorWriterLayout.GlyphPlacement] {
-        if writer == nil {
-            return await withCheckedContinuation { continuation in
-                pending.append((latex, anchor, continuation))
-            }
-        }
-        return await write(latex: latex, anchor: anchor)
-    }
-
-    private func write(latex: String, anchor: Anchor) async -> [TutorWriterLayout.GlyphPlacement] {
-        guard let writer else { return [] }
-        let origin: CGPoint
-        switch anchor {
-        case .belowLast, .below(_):
-            // `.below(id)` is spec'd as anchoring under a specific mark, but
-            // that mark could be existing ink OR a past WRITE — and
-            // `TutorWriter` doesn't track written equations by id (only the
-            // aggregate bounds of each `write` call). Resolving a mark's
-            // bbox lives on `TutorCoordinator` (`resolveMark`, private) and
-            // isn't threaded through `writeHandler`'s two-argument contract.
-            // Falling back to `.belowLast`'s placement is a documented
-            // judgment call, not a spec'd behavior — same status as the
-            // coordinator's own same-id-on-both-pages tiebreak.
-            if let lastRect {
-                origin = CGPoint(x: Self.leftMargin, y: lastRect.maxY + Self.lineGap)
-            } else {
-                origin = CGPoint(x: Self.leftMargin, y: Self.topMargin)
-            }
+    func handle(latex: String, origin: CGPoint) async -> [TutorWriterLayout.GlyphPlacement] {
+        guard let writer else {
+            TutorLog.shared.info("TutorWriteRouter: WRITE arrived before writer was ready — dropped")
+            return []
         }
         let result = await writer.write(latex: latex, at: origin, height: Self.lineHeight)
-        lastRect = result.bounds
         return result.placements
     }
 }

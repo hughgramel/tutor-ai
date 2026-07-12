@@ -59,10 +59,22 @@ import SwiftMath
 ///   the SwiftMath boundary, and everything downstream of it
 ///   (`GlyphPlacement.frame`) is already canvas-space y-down.
 /// - Letters render as Unicode "Mathematical Alphanumeric Symbols" (`x` →
-///   U+1D465 MATHEMATICAL ITALIC SMALL X), and `-` renders as U+2212 MINUS
-///   SIGN, not ASCII hyphen — confirmed empirically parsing `"5-3=2"`.
-///   `normalizeGlyphKey` folds both back to the ASCII keys `glyphStrokes`
-///   uses.
+///   U+1D465 MATHEMATICAL ITALIC SMALL X, `\pi` → U+1D70B MATHEMATICAL
+///   ITALIC SMALL PI), and `-` renders as U+2212 MINUS SIGN, not ASCII
+///   hyphen — confirmed empirically parsing `"5-3=2"`. `normalizeGlyphKey`
+///   folds all three (Latin italic, Greek italic, minus sign) back to the
+///   keys `glyphStrokes` uses.
+/// - `\frac{a}{b}` typesets as `MTFractionDisplay` (public, :292) whose
+///   `numerator`/`denominator` sub-display *positions* are already relative
+///   to the fraction's own origin (not double-relative like a normal
+///   parent/child pair) — confirmed against `MTFractionDisplay.draw`, which
+///   draws them without an extra `translateBy`. `\sqrt{a}` typesets as
+///   `MTRadicalDisplay` (internal, :387 — the type itself isn't
+///   `public`, so it's matched by name via `String(describing:)` rather
+///   than `as?`) with the same convention for its `radicand`. `walk` below
+///   handles both, plus `MTGlyphDisplay` (internal, :505 — a single
+///   pre-rendered glyph, e.g. `\int`) — see `walk`'s own doc comment for
+///   the per-case geometry derivation.
 enum TutorWriterLayout {
 
     /// One rendered glyph resolved from SwiftMath's display tree: the
@@ -144,15 +156,50 @@ enum TutorWriterLayout {
     /// Alphanumeric Symbols" (italic styling baked into the codepoint, not a
     /// font attribute) and renders `-` as U+2212 MINUS SIGN rather than
     /// ASCII hyphen — both confirmed empirically against the 1.7.3 source.
-    /// `glyphStrokes` only ever needs ASCII keys, so this folds exactly the
-    /// codepoints this glyph library's alphabet can produce; anything else
-    /// passes through unchanged (and will simply miss the `glyphStrokes`
-    /// lookup, triggering the CATextLayer fallback).
+    /// `glyphStrokes` only ever needs ASCII keys, so this folds every
+    /// codepoint this glyph library's alphabet can produce.
+    ///
+    /// Folds the *whole* Mathematical Italic block (U+1D434-U+1D44D
+    /// uppercase, U+1D44E-U+1D467 lowercase, `x`/`y` included), not just the
+    /// two letters `glyphStrokes` currently has strokes for: `glyphStrokes`
+    /// is a growing dictionary (glyphs-v2 lands more hand-authored letters
+    /// later), and an unfolded key would (a) silently miss a future
+    /// `glyphStrokes["z"]` entry even after it exists, and (b) feed the
+    /// *styled* codepoint to the CATextLayer fallback, which only a
+    /// specialized math font renders — defeating the fallback's own
+    /// handwriting-adjacent font choice (see `writeFallback`). Unicode
+    /// carves italic lowercase "h" out of this block (it collides with the
+    /// legacy PLANCK CONSTANT codepoint) — handled as an explicit case.
+    ///
+    /// Also folds the italic lowercase Greek block (U+1D6FC-1D714, `\pi` /
+    /// `\theta` / etc.) back to plain Greek (U+03B1-03C9): both blocks list
+    /// the 24 letters in the same order, *including* the same "final sigma"
+    /// insertion point between rho and sigma (U+1D70D / U+03C2), so a single
+    /// linear offset is correct for the whole block, not just π/θ — verified
+    /// letter-by-letter against the Unicode Mathematical Alphanumeric
+    /// Symbols block chart, not guessed. Greek letters `glyphStrokes` has no
+    /// stroke data for still fall through to the CATextLayer fallback, but
+    /// now with the right (non-italic-styled) codepoint, so that fallback
+    /// renders the actual letter instead of tofu/silent substitution.
+    ///
+    /// Anything outside these two blocks passes through unchanged (digits
+    /// and ASCII operators already typeset as plain ASCII — confirmed
+    /// empirically) and will simply miss the `glyphStrokes` lookup,
+    /// triggering the fallback.
     static func normalizeGlyphKey(_ nucleus: String) -> String {
         guard nucleus.unicodeScalars.count == 1, let scalar = nucleus.unicodeScalars.first else { return nucleus }
         switch scalar.value {
-        case 0x1D465: return "x" // MATHEMATICAL ITALIC SMALL X
-        case 0x1D466: return "y" // MATHEMATICAL ITALIC SMALL Y
+        case 0x210E: return "h" // PLANCK CONSTANT, standing in for italic lowercase h
+        case 0x1D434...0x1D44D: // MATHEMATICAL ITALIC CAPITAL A...Z
+            let offset = scalar.value - 0x1D434
+            return String(UnicodeScalar(UInt8(0x41 + offset)))
+        case 0x1D44E...0x1D467: // MATHEMATICAL ITALIC SMALL A...Z
+            let offset = scalar.value - 0x1D44E
+            return String(UnicodeScalar(UInt8(0x61 + offset)))
+        case 0x1D6FC...0x1D714: // MATHEMATICAL ITALIC SMALL ALPHA...OMEGA
+            let offset = scalar.value - 0x1D6FC
+            guard let plain = UnicodeScalar(0x3B1 + offset) else { return nucleus }
+            return String(Character(plain))
         case 0x2212: return "-"  // MINUS SIGN -> ASCII hyphen (glyphStrokes key)
         default: return nucleus
         }
@@ -227,41 +274,107 @@ enum TutorWriterLayout {
 
     // MARK: - SwiftMath display-tree walk (internal `position` via Mirror)
 
-    /// Reads `MTDisplay.position` (internal in SwiftMath — see the type doc
-    /// comment) via runtime reflection. Returns `nil` only if the property
-    /// truly isn't found (API moved), not when it's legitimately `.zero`, so
-    /// callers can distinguish "found and zero" from "SwiftMath changed
-    /// out from under us."
-    private static func position(of display: MTDisplay) -> CGPoint? {
-        var mirror: Mirror? = Mirror(reflecting: display)
+    /// Reads a stored property named `label` off `object` via runtime
+    /// reflection, walking up the superclass chain (`Mirror.children` only
+    /// exposes a type's *own* declared properties — inherited ones surface
+    /// one level up via `.superclassMirror`). This is how this file reaches
+    /// every SwiftMath field that's `internal` (not `public`) or whose
+    /// *type* is internal and therefore can't be named directly in this
+    /// module (`MTRadicalDisplay`, `MTGlyphDisplay` — see `walk` below):
+    /// `Mirror` walks runtime metadata, unconstrained by compile-time access
+    /// control or type visibility, and `T` only needs to be a type this file
+    /// already can name (`CGFloat`, `CGPoint`, `MTMathListDisplay`, `MTFont`
+    /// — all `public`), not the declaring type. Verified empirically against
+    /// a throwaway SPM executable linked against the same 1.7.3 checkout
+    /// before writing this file.
+    private static func mirrorChild<T>(of object: Any, label: String, as type: T.Type) -> T? {
+        var mirror: Mirror? = Mirror(reflecting: object)
         while let current = mirror {
-            for child in current.children where child.label == "position" {
-                if let point = child.value as? CGPoint { return point }
+            for child in current.children where child.label == label {
+                if let value = child.value as? T { return value }
             }
             mirror = current.superclassMirror
         }
         return nil
     }
 
+    /// `MTDisplay.position` is `internal`, not `public`
+    /// (MTMathListDisplay.swift:92) — a real gap in the library's access
+    /// control, not an oversight in this file. `nil` only when the property
+    /// truly isn't found (API moved), not when it's legitimately `.zero`, so
+    /// callers can distinguish "found and zero" from "SwiftMath changed
+    /// out from under us."
+    private static func position(of display: MTDisplay) -> CGPoint? {
+        mirrorChild(of: display, label: "position", as: CGPoint.self)
+    }
+
     /// Recursively walks the display tree, accumulating each `MTDisplay`
     /// node's `position` (relative to its parent — SwiftMath's own
     /// convention, mirrored by `MTMathListDisplay.draw`'s
     /// `context.translateBy(position)` before drawing its subDisplays) into
-    /// an absolute position, and decomposing every `MTCTLineDisplay` leaf
-    /// into per-glyph frames.
+    /// an absolute position, and decomposing every leaf into per-glyph
+    /// frames (real glyph frames for `MTCTLineDisplay`/`MTGlyphDisplay`,
+    /// synthetic `"fracbar"`/`"√"` frames sized from SwiftMath's own layout
+    /// math for `MTFractionDisplay`/`MTRadicalDisplay`).
     ///
-    /// Only `MTMathListDisplay` (recurse) and `MTCTLineDisplay` (decompose)
-    /// are handled — covers every symbol this glyph library and Task 11's
-    /// required demo strings need (digits, `x`/`y`, `+ - = ( ) .`).
-    /// `MTFractionDisplay`/`MTRadicalDisplay` (`\frac`, `\sqrt`) are logged
-    /// and skipped rather than guessed at: their sub-displays use a
-    /// different, non-relative position convention (numerator/denominator
-    /// positions are pre-baked absolute-to-the-fraction's-parent, per
-    /// `MTFractionDisplay`'s own doc comment), which would need separate,
-    /// separately-verified handling this task's scope doesn't require.
+    /// Five node kinds, all confirmed against the 1.7.3 source
+    /// (`MTMathListDisplay.swift`), not guessed:
+    ///
+    /// - `MTMathListDisplay` (public, :218) — recurse into `subDisplays`.
+    /// - `MTCTLineDisplay` (public, :116) — `decompose` into per-glyph
+    ///   CoreText frames (digits, letters, `+ - = ( ) .`).
+    /// - `MTFractionDisplay` (public, :292) — `numerator`/`denominator` are
+    ///   public-gettable `MTMathListDisplay?`, but their own `position` is
+    ///   *already* relative to the fraction's own origin (verified against
+    ///   `MTFractionDisplay.draw`, which never re-translates before drawing
+    ///   them) — so both recurse with the ORIGINAL `parentOrigin`, not
+    ///   `absoluteOrigin`, or the fraction's own position would be double-
+    ///   counted. The bar itself has no display node of its own; its
+    ///   position/thickness are internal fields (`linePosition`,
+    ///   `lineThickness`, read via `mirrorChild`) that `MTFractionDisplay
+    ///   .draw` uses to stroke a line directly — mirrored here as a
+    ///   synthetic `"fracbar"` glyph entry (reusing the existing
+    ///   `glyphStrokes["fracbar"]` horizontal-line stroke) spanning the
+    ///   fraction's full `width` at `linePosition`.
+    /// - `MTRadicalDisplay` (internal, :387 — type name unreferenceable
+    ///   outside the module, matched by `String(describing: type(of:))`
+    ///   instead) — same non-relative-position convention as the fraction's
+    ///   numerator/denominator: `radicand` (public-gettable, internal type
+    ///   `MTMathListDisplay` so declared as that instead) recurses with the
+    ///   original `parentOrigin`. The √ tick and its overbar are
+    ///   reconstructed from `MTRadicalDisplay.draw` (:487-497) and
+    ///   `MTTypesetter.makeRadical` (:1108-1140), which establish:
+    ///   `radical.width == radicalGlyphWidth + radicand.width` (so the
+    ///   glyph's own width is recoverable as `display.width -
+    ///   radicand.width` without touching the private `_radicalGlyph`), the
+    ///   overbar sits at `y = ascent - topKern - lineThickness/2` above the
+    ///   radicand's own left edge spanning `radicand.width`, and the tick
+    ///   occupies the width-difference strip immediately to its left,
+    ///   vertically spanning from the overbar down to the node's `descent`
+    ///   (the checkmark's tail). Both emitted as synthetic entries —
+    ///   `"fracbar"` again for the overbar, `"√"` for the tick (reusing
+    ///   `glyphStrokes["√"]`, a checkmark-shaped stroke authored to compose
+    ///   with a separately-drawn extending bar rather than stretch itself,
+    ///   exactly this layout). Geometry validated numerically (not just
+    ///   read off the source) against a throwaway SPM executable linked to
+    ///   this same 1.7.3 checkout before landing here.
+    /// - `MTGlyphDisplay` (internal, :505 — same string-match technique) —
+    ///   a single pre-rendered glyph (e.g. `\int`), not a `CTLine`.
+    ///   `MTGlyphDisplay.draw` (:519-533) translates by `(position.x,
+    ///   position.y - shiftDown)` then draws `glyph` at the CoreText origin
+    ///   via `CTFontDrawGlyphs` — so its tight frame is recovered the same
+    ///   way `decompose` recovers a `CTLineDisplay` run's per-glyph frame:
+    ///   `CTFontGetBoundingRectsForGlyphs` on that one glyph/font (both read
+    ///   via `mirrorChild`, `font: MTFont` itself public though its
+    ///   `ctFont: CTFont` is internal), offset by `(position.x, position.y -
+    ///   shiftDown)`. The atom's own nucleus isn't available on this node
+    ///   (no `atoms` array, unlike `MTCTLineDisplay`), so the emitted
+    ///   character is the literal glyph this file's demo battery needs —
+    ///   `"∫"` — matching `glyphStrokes["∫"]`.
     private static func walk(_ display: MTDisplay, parentOrigin: CGPoint, into result: inout [(character: String, frame: CGRect)]) {
         guard let localPosition = position(of: display) else { return }
         let absoluteOrigin = CGPoint(x: parentOrigin.x + localPosition.x, y: parentOrigin.y + localPosition.y)
+        let typeName = String(describing: type(of: display))
 
         if let line = display as? MTCTLineDisplay {
             decompose(line, absoluteOrigin: absoluteOrigin, into: &result)
@@ -269,8 +382,60 @@ enum TutorWriterLayout {
             for sub in list.subDisplays {
                 walk(sub, parentOrigin: absoluteOrigin, into: &result)
             }
+        } else if let fraction = display as? MTFractionDisplay {
+            if let numerator = fraction.numerator {
+                walk(numerator, parentOrigin: parentOrigin, into: &result)
+            }
+            if let denominator = fraction.denominator {
+                walk(denominator, parentOrigin: parentOrigin, into: &result)
+            }
+            let linePosition = mirrorChild(of: fraction, label: "linePosition", as: CGFloat.self) ?? 0
+            let lineThickness = mirrorChild(of: fraction, label: "lineThickness", as: CGFloat.self) ?? 0
+            let barY = absoluteOrigin.y + linePosition
+            result.append((character: "fracbar", frame: CGRect(
+                x: absoluteOrigin.x, y: barY - lineThickness / 2,
+                width: fraction.width, height: lineThickness
+            )))
+        } else if typeName == "MTRadicalDisplay" {
+            guard let radicand = mirrorChild(of: display, label: "radicand", as: MTMathListDisplay.self),
+                  let radicandPosition = position(of: radicand) else { return }
+            walk(radicand, parentOrigin: parentOrigin, into: &result)
+
+            let topKern = mirrorChild(of: display, label: "topKern", as: CGFloat.self) ?? 0
+            let lineThickness = mirrorChild(of: display, label: "lineThickness", as: CGFloat.self) ?? 0
+            let radicandAbsoluteX = parentOrigin.x + radicandPosition.x
+
+            let barY = absoluteOrigin.y + (display.ascent - topKern - lineThickness / 2)
+            result.append((character: "fracbar", frame: CGRect(
+                x: radicandAbsoluteX, y: barY - lineThickness / 2,
+                width: radicand.width, height: lineThickness
+            )))
+
+            let glyphWidth = display.width - radicand.width
+            let tickTop = barY
+            let tickBottom = absoluteOrigin.y - display.descent
+            result.append((character: "√", frame: CGRect(
+                x: radicandAbsoluteX - glyphWidth, y: min(tickTop, tickBottom),
+                width: glyphWidth, height: abs(tickTop - tickBottom)
+            )))
+        } else if typeName == "MTGlyphDisplay" {
+            guard let glyph = mirrorChild(of: display, label: "glyph", as: CGGlyph.self),
+                  let font = mirrorChild(of: display, label: "font", as: MTFont.self),
+                  let ctFont = mirrorChild(of: font, label: "ctFont", as: CTFont.self) else { return }
+            let shiftDown = mirrorChild(of: display, label: "shiftDown", as: CGFloat.self) ?? 0
+
+            var mutableGlyph = glyph
+            var rect = CGRect.zero
+            CTFontGetBoundingRectsForGlyphs(ctFont, .horizontal, &mutableGlyph, &rect, 1)
+
+            let drawOrigin = CGPoint(x: absoluteOrigin.x, y: absoluteOrigin.y - shiftDown)
+            let frame = CGRect(
+                x: drawOrigin.x + rect.origin.x, y: drawOrigin.y + rect.origin.y,
+                width: rect.width, height: rect.height
+            )
+            result.append((character: "∫", frame: frame))
         } else {
-            TutorLog.shared.info("TutorWriter: unsupported display node \(type(of: display)) (range \(display.range)) — subexpression skipped (frac/sqrt not wired yet)")
+            TutorLog.shared.info("TutorWriter: unsupported display node \(typeName) (range \(display.range)) — subexpression skipped")
         }
     }
 
@@ -420,7 +585,7 @@ final class TutorWriter: UIView {
                 }
             } else {
                 TutorLog.shared.info("TutorWriter: no glyphStrokes entry for \"\(placement.character)\" (key=\"\(placement.glyphKey)\") — using text fallback")
-                writeFallback(character: placement.character, frame: placement.frame, on: container)
+                writeFallback(character: placement.glyphKey, frame: placement.frame, on: container)
                 try? await Task.sleep(nanoseconds: UInt64(TutorWriterLayout.fallbackPause * 1_000_000_000))
             }
         }
@@ -470,6 +635,20 @@ final class TutorWriter: UIView {
     /// we lack, etc.) — a rounded system font so it reads as "the tutor's
     /// handwriting" rather than a mismatched printed character, per Task
     /// 11's spec: log it (done by the caller) and never crash.
+    ///
+    /// Takes the caller's already-`normalizeGlyphKey`-folded string, NOT the
+    /// raw `GlyphPlacement.character` — SwiftMath's raw nucleus for a
+    /// variable is a *styled* Mathematical Alphanumeric Symbols codepoint
+    /// (e.g. italic z), which the system rounded font has no glyph for;
+    /// CoreText silently substitutes a serif math font instead, so the
+    /// fallback visibly clashed with the hand-drawn strokes around it
+    /// (the actual bug behind "it writes stuff weirdly" for `z`/`w` in the
+    /// demo battery). The folded key is plain ASCII/Greek, which the
+    /// rounded font *does* have.
+    ///
+    /// A small random rotation (±2°) is layered on top so a run of fallback
+    /// letters doesn't read as a rigid printed row next to genuinely
+    /// hand-drawn strokes, which vary stroke-to-stroke.
     private func writeFallback(character: String, frame: CGRect, on container: CALayer) {
         let textLayer = CATextLayer()
         textLayer.string = character
@@ -483,6 +662,8 @@ final class TutorWriter: UIView {
         textLayer.foregroundColor = UIColor.black.cgColor
         textLayer.alignmentMode = .center
         textLayer.contentsScale = UIScreen.main.scale
+        let jitterDegrees = CGFloat.random(in: -2...2)
+        textLayer.transform = CATransform3DMakeRotation(jitterDegrees * .pi / 180, 0, 0, 1)
         container.addSublayer(textLayer)
     }
 

@@ -101,6 +101,99 @@ final class TutorWriterTests: XCTestCase {
         XCTAssertEqual(TutorWriterLayout.normalizeGlyphKey("("), "(")
     }
 
+    func testNormalizeGlyphKeyFoldsFullLatinItalicAlphabetIncludingHException() {
+        // z/w — the glyphs-v2 battery's unknown-letter case: glyphStrokes
+        // has no strokes for them yet, but normalizeGlyphKey must still
+        // fold them to plain ASCII so the CATextLayer fallback gets a
+        // renderable character instead of a styled codepoint.
+        XCTAssertEqual(TutorWriterLayout.normalizeGlyphKey("\u{1D467}"), "z") // MATHEMATICAL ITALIC SMALL Z
+        XCTAssertEqual(TutorWriterLayout.normalizeGlyphKey("\u{1D464}"), "w") // MATHEMATICAL ITALIC SMALL W
+        XCTAssertEqual(TutorWriterLayout.normalizeGlyphKey("\u{1D44E}"), "a") // MATHEMATICAL ITALIC SMALL A (block start)
+        XCTAssertEqual(TutorWriterLayout.normalizeGlyphKey("\u{1D434}"), "A") // MATHEMATICAL ITALIC CAPITAL A (block start)
+        XCTAssertEqual(TutorWriterLayout.normalizeGlyphKey("\u{1D44D}"), "Z") // MATHEMATICAL ITALIC CAPITAL Z (block end)
+        // Unicode carves italic lowercase "h" out of the main italic block
+        // (it collides with the legacy PLANCK CONSTANT codepoint) — SwiftMath
+        // emits U+210E for it instead of a codepoint inside 1D44E...1D467.
+        XCTAssertEqual(TutorWriterLayout.normalizeGlyphKey("\u{210E}"), "h")
+    }
+
+    func testNormalizeGlyphKeyFoldsGreekItalicLettersIncludingFinalSigmaQuirk() {
+        XCTAssertEqual(TutorWriterLayout.normalizeGlyphKey("\u{1D6FC}"), "\u{03B1}") // alpha (block start)
+        XCTAssertEqual(TutorWriterLayout.normalizeGlyphKey("\u{1D70B}"), "\u{03C0}") // pi
+        XCTAssertEqual(TutorWriterLayout.normalizeGlyphKey("\u{1D703}"), "\u{03B8}") // theta
+        XCTAssertEqual(TutorWriterLayout.normalizeGlyphKey("\u{1D714}"), "\u{03C9}") // omega (block end)
+        // Both the italic-math and plain Greek blocks insert "final sigma"
+        // at the same point (between rho and sigma) — this only holds if
+        // that insertion point lines up, so it's asserted explicitly rather
+        // than assumed to fall out of the alpha/pi/theta/omega spot checks.
+        XCTAssertEqual(TutorWriterLayout.normalizeGlyphKey("\u{1D70D}"), "\u{03C2}") // final sigma
+    }
+
+    // MARK: - Fraction layout (\frac{a}{b} -> MTFractionDisplay)
+
+    func testFractionLayoutStacksNumeratorBarDenominatorTopToBottom() throws {
+        guard let (placements, bounds) = TutorWriterLayout.layout(
+            latex: "\\frac{1}{2}", at: .zero, height: 72
+        ) else {
+            return XCTFail("expected \\frac{1}{2} to parse")
+        }
+
+        let keys = placements.map(\.glyphKey)
+        XCTAssertEqual(keys, ["1", "fracbar", "2"], "numerator, then bar, then denominator, in that walk order")
+
+        let numerator = try XCTUnwrap(placements[safe: 0])
+        let bar = try XCTUnwrap(placements[safe: 1])
+        let denominator = try XCTUnwrap(placements[safe: 2])
+
+        // Canvas space is y-down: numerator sits above the bar, denominator below it.
+        XCTAssertLessThan(numerator.frame.maxY, bar.frame.minY + bar.frame.height, "numerator should be above the bar")
+        XCTAssertLessThanOrEqual(bar.frame.maxY, denominator.frame.minY + 0.5, "bar should be above (or flush with) the denominator")
+        XCTAssertLessThan(numerator.frame.minY, denominator.frame.minY, "numerator should render higher on the page than the denominator")
+
+        // The bar spans the full equation width (Task 11's demo case is
+        // single-digit num/denom, so the bar is the widest element).
+        XCTAssertEqual(bar.frame.width, bounds.width, accuracy: 0.01)
+        XCTAssertGreaterThan(bar.frame.width, 0)
+        XCTAssertGreaterThan(bar.frame.height, 0)
+    }
+
+    // MARK: - Radical layout (\sqrt{a} -> MTRadicalDisplay)
+
+    func testSqrtLayoutPlacesTickAndBarAroundRadicand() throws {
+        guard let (placements, _) = TutorWriterLayout.layout(
+            latex: "\\sqrt{16}", at: .zero, height: 72
+        ) else {
+            return XCTFail("expected \\sqrt{16} to parse")
+        }
+
+        let keys = placements.map(\.glyphKey)
+        XCTAssertEqual(keys, ["1", "6", "fracbar", "√"], "radicand walked first, then the synthetic overbar/tick entries")
+
+        let one = try XCTUnwrap(placements[safe: 0])
+        let six = try XCTUnwrap(placements[safe: 1])
+        let overbar = try XCTUnwrap(placements[safe: 2])
+        let tick = try XCTUnwrap(placements[safe: 3])
+
+        // The tick sits to the left of the radicand, and the overbar spans
+        // (at least) the radicand's width, seamlessly continuing from the
+        // tick's own top rather than leaving a visible gap. SwiftMath's own
+        // vector-bar convention centers the bar's line-thickness on its
+        // reference y (MTTypesetter.makeRadical's `lineStart`/`lineEnd`),
+        // while the tick's glyph reaches exactly to that reference y — so a
+        // sub-pixel seam of half the (unscaled, ~2pt) line thickness is
+        // mathematically expected, not a bug; asserted as "small relative
+        // to the tick's own size" rather than "zero," so this doesn't
+        // become font-size-fragile.
+        XCTAssertLessThanOrEqual(tick.frame.maxX, one.frame.minX + 0.5, "tick should sit left of the radicand")
+        XCTAssertGreaterThanOrEqual(overbar.frame.width, six.frame.maxX - one.frame.minX - 0.5, "overbar should span the radicand's width")
+        let seam = abs(tick.frame.minY - overbar.frame.minY)
+        XCTAssertLessThan(seam, tick.frame.height * 0.1, "tick's top should meet the overbar with no visually distinct gap")
+
+        XCTAssertGreaterThan(tick.frame.width, 0)
+        XCTAssertGreaterThan(tick.frame.height, 0)
+        XCTAssertGreaterThan(overbar.frame.width, 0)
+    }
+
     // MARK: - Stroke scaling: unit box -> target frame
 
     func testScalePointMapsUnitBoxCornersToFrameCorners() {

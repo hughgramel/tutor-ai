@@ -158,7 +158,7 @@ final class TagParserTests: XCTestCase {
         XCTAssertEqual(r.subtitleText, overlong)
     }
 
-    // MARK: - Stretch tags (PLOT/SHAPE): accepted, never crash
+    // MARK: - PLOT: accepted, never crash (still a stretch tag — no renderer)
 
     func testPlotTagAcceptedAsUnsupportedPayload() {
         let r = TagParser().feed("[PLOT:y=sin(x)] there")
@@ -166,15 +166,53 @@ final class TagParserTests: XCTestCase {
         XCTAssertEqual(r.subtitleText, " there")
     }
 
-    func testShapeTagAcceptedWithEmptyPoints() {
-        let r = TagParser().feed("[SHAPE:circle|the region] there")
-        XCTAssertEqual(r.tags, [.shape(kind: "circle", points: [], label: "the region")])
+    // MARK: - SHAPE: `[SHAPE:kind:x,y;x,y;...:label]`, promoted to a real grammar
+
+    func testShapePolygonTriangleWithLabel() {
+        let r = TagParser().feed("[SHAPE:polygon:0.1,0.9;0.9,0.9;0.9,0.1:right triangle] there")
+        XCTAssertEqual(r.tags, [.shape(
+            kind: "polygon",
+            points: [CGPoint(x: 0.1, y: 0.9), CGPoint(x: 0.9, y: 0.9), CGPoint(x: 0.9, y: 0.1)],
+            label: "right triangle"
+        )])
         XCTAssertEqual(r.subtitleText, " there")
     }
 
-    func testShapeTagWithoutLabel() {
-        let r = TagParser().feed("[SHAPE:triangle]")
-        XCTAssertEqual(r.tags, [.shape(kind: "triangle", points: [], label: "")])
+    func testShapeCurveThroughThreePoints() {
+        let r = TagParser().feed("[SHAPE:curve:0.1,0.5;0.5,0.1;0.9,0.5:arc]")
+        XCTAssertEqual(r.tags, [.shape(
+            kind: "curve",
+            points: [CGPoint(x: 0.1, y: 0.5), CGPoint(x: 0.5, y: 0.1), CGPoint(x: 0.9, y: 0.5)],
+            label: "arc"
+        )])
+    }
+
+    func testShapeMissingLabelDefaultsToEmptyString() {
+        let r = TagParser().feed("[SHAPE:line:0.2,0.2;0.8,0.8]")
+        XCTAssertEqual(r.tags, [.shape(kind: "line", points: [CGPoint(x: 0.2, y: 0.2), CGPoint(x: 0.8, y: 0.8)], label: "")])
+    }
+
+    func testShapeMalformedVertexDropsWholeTag() {
+        let r = TagParser().feed("[SHAPE:polygon:0.1,0.1;bad;0.5,0.9:x] gone")
+        XCTAssertEqual(r.tags, [])
+        XCTAssertEqual(r.subtitleText, " gone")
+    }
+
+    func testShapeUnknownKindDropped() {
+        let r = TagParser().feed("[SHAPE:blob:0.1,0.1;0.2,0.2] gone")
+        XCTAssertEqual(r.tags, [])
+        XCTAssertEqual(r.subtitleText, " gone")
+    }
+
+    func testShapeFewerThanTwoVerticesDropped() {
+        let r = TagParser().feed("[SHAPE:line:0.5,0.5] gone")
+        XCTAssertEqual(r.tags, [])
+        XCTAssertEqual(r.subtitleText, " gone")
+    }
+
+    func testShapeOutOfRangeVerticesAreClamped() {
+        let r = TagParser().feed("[SHAPE:line:-0.5,0.2;1.5,1.8:edge]")
+        XCTAssertEqual(r.tags, [.shape(kind: "line", points: [CGPoint(x: 0, y: 0.2), CGPoint(x: 1, y: 1)], label: "edge")])
     }
 
     // MARK: - NEWPAGE and WAIT

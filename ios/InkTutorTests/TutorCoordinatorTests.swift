@@ -13,6 +13,12 @@ import UIKit
 ///   - the full `session.transcriptDeltas` -> `start()` -> `subtitleStream`
 ///     pipeline, for the one thing that path alone proves: tags get
 ///     stripped from what the voice bar would display.
+///
+/// Post-pivot (Hugh, 2026-07-12: "remove the 'AI gets its own page', we can
+/// just work on the right alongside the user"), there's exactly ONE
+/// `PageModel` on screen — `makeCoordinator` takes a single `page` and hands
+/// it to `TutorCoordinator` as both its `studentPage` and `tutorPage`
+/// arguments, same as `CanvasScreen` does at the real construction site.
 @MainActor
 final class TutorCoordinatorTests: XCTestCase {
 
@@ -51,6 +57,7 @@ final class TutorCoordinatorTests: XCTestCase {
         var isConnected: Bool = true
         var userTranscript: AsyncStream<String> { AsyncStream { _ in } }
         var audioLevel: AsyncStream<Float> { AsyncStream { _ in } }
+        func stopSpeaking() async {}
         func startTalking() async {}
         func stopTalking() async {}
 
@@ -70,22 +77,21 @@ final class TutorCoordinatorTests: XCTestCase {
 
     // MARK: - Helpers
 
+    private static let testPageSize = CGSize(width: 768, height: 1024)
+
     private func makeCoordinator(
         session: TutorSession,
         performer: AnnotationPerforming,
-        studentPage: PageModel,
-        tutorPage: PageModel,
-        onOpenTutorPage: @escaping () -> Void = {},
-        onWrite: @escaping (String, Anchor) async -> [TutorWriterLayout.GlyphPlacement] = { _, _ in [] },
+        page: PageModel,
+        onWrite: @escaping (String, CGPoint) async -> [TutorWriterLayout.GlyphPlacement] = { _, _ in [] },
         writtenLayer: @escaping () -> CALayer? = { nil }
     ) -> TutorCoordinator {
         TutorCoordinator(
             session: session,
-            studentPage: studentPage,
-            tutorPage: tutorPage,
-            pageSize: CGSize(width: 768, height: 1024),
+            studentPage: page,
+            tutorPage: page,
+            pageSize: Self.testPageSize,
             performer: performer,
-            openTutorPage: onOpenTutorPage,
             writeHandler: onWrite,
             writtenLayerProvider: writtenLayer
         )
@@ -109,23 +115,22 @@ final class TutorCoordinatorTests: XCTestCase {
 
     func testMarkIdsStableAcrossTwoSnapshotPushes() async {
         let session = FakeTutorSession()
-        let studentPage = PageModel(role: .student)
-        let tutorPage = PageModel(role: .tutor)
-        let coordinator = makeCoordinator(session: session, performer: FakeAnnotationPerformer(), studentPage: studentPage, tutorPage: tutorPage)
+        let page = PageModel(role: .student)
+        let coordinator = makeCoordinator(session: session, performer: FakeAnnotationPerformer(), page: page)
 
-        studentPage.drawing = drawing([CGPoint(x: 100, y: 500), CGPoint(x: 120, y: 510), CGPoint(x: 140, y: 500)])
-        let firstMarks = await coordinator.pushEnrichedSnapshot(for: studentPage)
+        page.drawing = drawing([CGPoint(x: 100, y: 500), CGPoint(x: 120, y: 510), CGPoint(x: 140, y: 500)])
+        let firstMarks = await coordinator.pushEnrichedSnapshot(for: page)
         XCTAssertEqual(firstMarks.count, 1)
         XCTAssertEqual(firstMarks[0].id, 1)
 
         // Add a second, far-away stroke (different line) — the first
         // mark's bbox is unchanged, so it must keep id 1; the new one gets
         // a fresh id.
-        studentPage.drawing = PKDrawing(strokes: [
+        page.drawing = PKDrawing(strokes: [
             stroke(from: [CGPoint(x: 100, y: 500), CGPoint(x: 120, y: 510), CGPoint(x: 140, y: 500)]),
             stroke(from: [CGPoint(x: 100, y: 700), CGPoint(x: 120, y: 710), CGPoint(x: 140, y: 700)]),
         ])
-        let secondMarks = await coordinator.pushEnrichedSnapshot(for: studentPage)
+        let secondMarks = await coordinator.pushEnrichedSnapshot(for: page)
 
         XCTAssertEqual(secondMarks.count, 2)
         let carriedOver = secondMarks.first { $0.bbox.minY < 600 }
@@ -139,12 +144,11 @@ final class TutorCoordinatorTests: XCTestCase {
 
     func testPushEnrichedSnapshotPushesLabeledImageAndRegistryJSON() async {
         let session = FakeTutorSession()
-        let studentPage = PageModel(role: .student)
-        let tutorPage = PageModel(role: .tutor)
-        let coordinator = makeCoordinator(session: session, performer: FakeAnnotationPerformer(), studentPage: studentPage, tutorPage: tutorPage)
+        let page = PageModel(role: .student)
+        let coordinator = makeCoordinator(session: session, performer: FakeAnnotationPerformer(), page: page)
 
-        studentPage.drawing = drawing([CGPoint(x: 100, y: 500), CGPoint(x: 120, y: 510), CGPoint(x: 140, y: 500)])
-        _ = await coordinator.pushEnrichedSnapshot(for: studentPage)
+        page.drawing = drawing([CGPoint(x: 100, y: 500), CGPoint(x: 120, y: 510), CGPoint(x: 140, y: 500)])
+        _ = await coordinator.pushEnrichedSnapshot(for: page)
 
         XCTAssertEqual(session.pushedImages.count, 1)
         XCTAssertFalse(session.pushedImages[0].isEmpty)
@@ -158,17 +162,16 @@ final class TutorCoordinatorTests: XCTestCase {
     func testCircleRendersOnResolvedMarkAndPushesMarkRendered() async {
         let session = FakeTutorSession()
         let performer = FakeAnnotationPerformer()
-        let studentPage = PageModel(role: .student)
-        let tutorPage = PageModel(role: .tutor)
-        let coordinator = makeCoordinator(session: session, performer: performer, studentPage: studentPage, tutorPage: tutorPage)
+        let page = PageModel(role: .student)
+        let coordinator = makeCoordinator(session: session, performer: performer, page: page)
 
-        studentPage.drawing = drawing([CGPoint(x: 100, y: 500), CGPoint(x: 120, y: 510), CGPoint(x: 140, y: 500)])
-        _ = await coordinator.pushEnrichedSnapshot(for: studentPage)
+        page.drawing = drawing([CGPoint(x: 100, y: 500), CGPoint(x: 120, y: 510), CGPoint(x: 140, y: 500)])
+        _ = await coordinator.pushEnrichedSnapshot(for: page)
 
         await coordinator.dispatch(.circle(1))
 
         XCTAssertEqual(performer.calls.count, 1)
-        XCTAssertEqual(performer.calls[0].page.id, studentPage.id)
+        XCTAssertEqual(performer.calls[0].page.id, page.id)
         if case .circle(let mark) = performer.calls[0].annotation {
             XCTAssertEqual(mark.id, 1)
         } else {
@@ -181,9 +184,8 @@ final class TutorCoordinatorTests: XCTestCase {
     func testCircleWithUnknownMarkIdIsDroppedAndLogged() async {
         let session = FakeTutorSession()
         let performer = FakeAnnotationPerformer()
-        let studentPage = PageModel(role: .student)
-        let tutorPage = PageModel(role: .tutor)
-        let coordinator = makeCoordinator(session: session, performer: performer, studentPage: studentPage, tutorPage: tutorPage)
+        let page = PageModel(role: .student)
+        let coordinator = makeCoordinator(session: session, performer: performer, page: page)
 
         // No snapshot ever pushed -- no mark 99 exists in any registry.
         await coordinator.dispatch(.circle(99))
@@ -196,16 +198,15 @@ final class TutorCoordinatorTests: XCTestCase {
     func testArrowWithBothMarksOnSamePageRenders() async {
         let session = FakeTutorSession()
         let performer = FakeAnnotationPerformer()
-        let studentPage = PageModel(role: .student)
-        let tutorPage = PageModel(role: .tutor)
-        let coordinator = makeCoordinator(session: session, performer: performer, studentPage: studentPage, tutorPage: tutorPage)
+        let page = PageModel(role: .student)
+        let coordinator = makeCoordinator(session: session, performer: performer, page: page)
 
         // Two well-separated strokes on the same line -> 2 marks (ids 1, 2).
-        studentPage.drawing = PKDrawing(strokes: [
+        page.drawing = PKDrawing(strokes: [
             stroke(from: [CGPoint(x: 100, y: 500), CGPoint(x: 120, y: 510), CGPoint(x: 140, y: 500)]),
             stroke(from: [CGPoint(x: 220, y: 500), CGPoint(x: 240, y: 510), CGPoint(x: 260, y: 500)]),
         ])
-        _ = await coordinator.pushEnrichedSnapshot(for: studentPage)
+        _ = await coordinator.pushEnrichedSnapshot(for: page)
 
         await coordinator.dispatch(.arrow(1, 2))
 
@@ -221,12 +222,11 @@ final class TutorCoordinatorTests: XCTestCase {
     func testArrowWithUnknownMarkDroppedAndLogged() async {
         let session = FakeTutorSession()
         let performer = FakeAnnotationPerformer()
-        let studentPage = PageModel(role: .student)
-        let tutorPage = PageModel(role: .tutor)
-        let coordinator = makeCoordinator(session: session, performer: performer, studentPage: studentPage, tutorPage: tutorPage)
+        let page = PageModel(role: .student)
+        let coordinator = makeCoordinator(session: session, performer: performer, page: page)
 
-        studentPage.drawing = drawing([CGPoint(x: 100, y: 500), CGPoint(x: 120, y: 510), CGPoint(x: 140, y: 500)])
-        _ = await coordinator.pushEnrichedSnapshot(for: studentPage)
+        page.drawing = drawing([CGPoint(x: 100, y: 500), CGPoint(x: 120, y: 510), CGPoint(x: 140, y: 500)])
+        _ = await coordinator.pushEnrichedSnapshot(for: page)
 
         await coordinator.dispatch(.arrow(1, 99))
 
@@ -234,55 +234,52 @@ final class TutorCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.journal.last?.event, .tagDropped(tag: "ARROW:1>99", reason: "unknown mark id or cross-page pair"))
     }
 
-    func testWriteOpensTutorPageWhenClosedThenWrites() async {
+    // MARK: - HIGHLIGHT: killed (Hugh, 2026-07-12 — "remove the highlighting
+    // tool it looks ugly, pointing is better"). The parser still accepts it
+    // so an in-flight session built against the old prompt doesn't crash;
+    // it must never reach the performer.
+
+    func testHighlightIsDroppedAndLogged() async {
         let session = FakeTutorSession()
         let performer = FakeAnnotationPerformer()
-        let studentPage = PageModel(role: .student)
-        let tutorPage = PageModel(role: .tutor)
-        var openCount = 0
-        var writeCalls: [(String, Anchor)] = []
-        let coordinator = makeCoordinator(
-            session: session, performer: performer, studentPage: studentPage, tutorPage: tutorPage,
-            onOpenTutorPage: { openCount += 1 },
-            onWrite: { latex, anchor in writeCalls.append((latex, anchor)); return [] }
-        )
+        let page = PageModel(role: .student)
+        let coordinator = makeCoordinator(session: session, performer: performer, page: page)
 
-        await coordinator.dispatch(.write(latex: "x=1", anchor: .belowLast))
+        page.drawing = drawing([CGPoint(x: 100, y: 500), CGPoint(x: 120, y: 510), CGPoint(x: 140, y: 500)])
+        _ = await coordinator.pushEnrichedSnapshot(for: page)
 
-        XCTAssertEqual(openCount, 1, "the tutor page must be opened before writing when it wasn't already")
-        XCTAssertEqual(writeCalls.count, 1)
-        XCTAssertEqual(writeCalls[0].0, "x=1")
-        XCTAssertEqual(writeCalls[0].1, .belowLast)
-        XCTAssertEqual(coordinator.journal.map(\.event), [.tutorPageOpened, .wrote(latex: "x=1", anchor: "below:last")], "open must be journaled before write")
+        await coordinator.dispatch(.highlight(1))
+
+        XCTAssertTrue(performer.calls.isEmpty, "HIGHLIGHT must never reach the performer, even for a resolvable mark id")
+        XCTAssertTrue(session.pushedEvents.count == 1, "only the snapshot push above, no mark_rendered for HIGHLIGHT")
+        XCTAssertEqual(coordinator.journal.last?.event, .tagDropped(tag: "HIGHLIGHT:1", reason: "highlight tool removed"))
     }
 
-    func testWriteWhenTutorPageAlreadyOpenDoesNotReopen() async {
+    // MARK: - NEWPAGE: no-op (Hugh, 2026-07-12 — "remove the 'AI gets its
+    // own page'"). The parser still accepts it; there's nothing left to open.
+
+    func testNewPageIsNoOpAndLogged() async {
         let session = FakeTutorSession()
         let performer = FakeAnnotationPerformer()
-        let studentPage = PageModel(role: .student)
-        let tutorPage = PageModel(role: .tutor)
-        var openCount = 0
-        let coordinator = makeCoordinator(
-            session: session, performer: performer, studentPage: studentPage, tutorPage: tutorPage,
-            onOpenTutorPage: { openCount += 1 }
-        )
+        let page = PageModel(role: .student)
+        let coordinator = makeCoordinator(session: session, performer: performer, page: page)
 
         await coordinator.dispatch(.newPage)
-        await coordinator.dispatch(.write(latex: "x=2", anchor: .below(3)))
 
-        XCTAssertEqual(openCount, 1, "already-open tutor page must not be reopened")
+        XCTAssertTrue(performer.calls.isEmpty)
+        XCTAssertTrue(session.pushedEvents.isEmpty)
+        XCTAssertEqual(coordinator.journal.last?.event, .tagDropped(tag: "NEWPAGE", reason: "no-op — single shared canvas"))
     }
 
     func testWriteNeverInvokesAnnotationPerformer() async {
         // WRITE carries no page argument anywhere in this file -- there is
         // no code path through which it could reach `PageModel.drawing` on
         // the student page (or mutate anything via `performer`, whose only
-        // job is the four annotate-only primitives).
+        // job is the annotate-only primitives).
         let session = FakeTutorSession()
         let performer = FakeAnnotationPerformer()
-        let studentPage = PageModel(role: .student)
-        let tutorPage = PageModel(role: .tutor)
-        let coordinator = makeCoordinator(session: session, performer: performer, studentPage: studentPage, tutorPage: tutorPage)
+        let page = PageModel(role: .student)
+        let coordinator = makeCoordinator(session: session, performer: performer, page: page)
 
         await coordinator.dispatch(.write(latex: "x=1", anchor: .belowLast))
 
@@ -291,34 +288,33 @@ final class TutorCoordinatorTests: XCTestCase {
 
     // MARK: - WRITE glyphs become addressable marks (own handwriting anchoring)
 
-    func testWriteAppendsWrittenMarksAndPushesEnrichedTutorSnapshot() async {
+    func testWriteAppendsWrittenMarksAndPushesEnrichedSnapshot() async {
         let session = FakeTutorSession()
         let performer = FakeAnnotationPerformer()
-        let studentPage = PageModel(role: .student)
-        let tutorPage = PageModel(role: .tutor)
+        let page = PageModel(role: .student)
         let glyphs = [
             fakeGlyph("2", CGRect(x: 60, y: 80, width: 20, height: 30)),
             fakeGlyph("x", CGRect(x: 84, y: 80, width: 20, height: 30)),
         ]
         let coordinator = makeCoordinator(
-            session: session, performer: performer, studentPage: studentPage, tutorPage: tutorPage,
+            session: session, performer: performer, page: page,
             onWrite: { _, _ in glyphs }
         )
 
         await coordinator.dispatch(.write(latex: "2x", anchor: .belowLast))
 
-        // dispatchWrite pushes its OWN enriched snapshot of the tutor page
+        // dispatchWrite pushes its OWN enriched snapshot of the shared page
         // once the writer finishes -- distinct from the debounced push
         // CanvasView.Coordinator schedules off a PKCanvasView stroke, which
         // never fires here (nothing changed in any PKDrawing).
         XCTAssertEqual(session.pushedImages.count, 1)
         XCTAssertEqual(session.pushedEvents.count, 1)
         let json = session.pushedEvents[0]
-        XCTAssertTrue(json.contains("\"page\":\"tutor\""))
+        XCTAssertTrue(json.contains("\"page\":\"student\""))
         XCTAssertTrue(json.contains("\"id\":1"))
         XCTAssertTrue(json.contains("\"id\":2"))
         XCTAssertTrue(json.contains("\"written\":true"), "written marks must be tagged so the model can tell its own writing from the student's ink")
-        XCTAssertEqual(coordinator.journal.last?.event, .snapshotPushed(page: "tutor", markCount: 2))
+        XCTAssertEqual(coordinator.journal.last?.event, .snapshotPushed(page: "student", markCount: 2))
     }
 
     func testArrowBetweenTwoWrittenGlyphsDispatchesToPerformer() async {
@@ -327,12 +323,11 @@ final class TutorCoordinatorTests: XCTestCase {
         // tutor's own handwriting, not student ink.
         let session = FakeTutorSession()
         let performer = FakeAnnotationPerformer()
-        let studentPage = PageModel(role: .student)
-        let tutorPage = PageModel(role: .tutor)
+        let page = PageModel(role: .student)
         let two = fakeGlyph("2", CGRect(x: 60, y: 80, width: 20, height: 30))
         let x = fakeGlyph("x", CGRect(x: 84, y: 80, width: 20, height: 30))
         let coordinator = makeCoordinator(
-            session: session, performer: performer, studentPage: studentPage, tutorPage: tutorPage,
+            session: session, performer: performer, page: page,
             onWrite: { _, _ in [two, x] }
         )
 
@@ -340,7 +335,7 @@ final class TutorCoordinatorTests: XCTestCase {
         await coordinator.dispatch(.arrow(1, 2))
 
         XCTAssertEqual(performer.calls.count, 1)
-        XCTAssertEqual(performer.calls[0].page.id, tutorPage.id, "an arrow between two written marks must dispatch on the tutor page")
+        XCTAssertEqual(performer.calls[0].page.id, page.id, "an arrow between two written marks must dispatch on the shared page")
         if case .arrow(let from, let to) = performer.calls[0].annotation {
             XCTAssertEqual(from.bbox, two.frame)
             XCTAssertEqual(to.bbox, x.frame)
@@ -351,23 +346,22 @@ final class TutorCoordinatorTests: XCTestCase {
         }
     }
 
-    func testWrittenMarkIDsDoNotCollideWithInkMarksOnTutorPage() async {
-        // The tutor page can carry BOTH real ink (MarkRegistry.compute) and
+    func testWrittenMarkIDsDoNotCollideWithInkMarksOnSharedPage() async {
+        // The shared page can carry BOTH real ink (MarkRegistry.compute) and
         // written glyphs (appendWrittenMarks) -- they must share one ID
         // counter space so [CIRCLE:n] is never ambiguous between the two.
         let session = FakeTutorSession()
         let performer = FakeAnnotationPerformer()
-        let studentPage = PageModel(role: .student)
-        let tutorPage = PageModel(role: .tutor)
+        let page = PageModel(role: .student)
         let glyph = fakeGlyph("5", CGRect(x: 200, y: 200, width: 20, height: 30))
         let coordinator = makeCoordinator(
-            session: session, performer: performer, studentPage: studentPage, tutorPage: tutorPage,
+            session: session, performer: performer, page: page,
             onWrite: { _, _ in [glyph] }
         )
 
         // Ink first -- MarkRegistry's own counter hands it id 1.
-        tutorPage.drawing = drawing([CGPoint(x: 100, y: 500), CGPoint(x: 120, y: 510), CGPoint(x: 140, y: 500)])
-        let inkMarks = await coordinator.pushEnrichedSnapshot(for: tutorPage)
+        page.drawing = drawing([CGPoint(x: 100, y: 500), CGPoint(x: 120, y: 510), CGPoint(x: 140, y: 500)])
+        let inkMarks = await coordinator.pushEnrichedSnapshot(for: page)
         XCTAssertEqual(inkMarks.map(\.id), [1])
 
         await coordinator.dispatch(.write(latex: "5", anchor: .belowLast))
@@ -386,12 +380,275 @@ final class TutorCoordinatorTests: XCTestCase {
         }
     }
 
+    // MARK: - WRITE placement: directly beneath the student's own work
+    // (Hugh, 2026-07-12 revision: "don't make it on the side; make it on
+    // the user's actual canvas they're drawing on"). `onWrite` is the hook
+    // — it receives the already-computed page-space origin.
+
+    func testWriteBelowWorkAlignsWithInkLeftEdgeAndBottom() async {
+        let session = FakeTutorSession()
+        let performer = FakeAnnotationPerformer()
+        let page = PageModel(role: .student)
+        var capturedOrigins: [CGPoint] = []
+        let coordinator = makeCoordinator(
+            session: session, performer: performer, page: page,
+            onWrite: { _, origin in capturedOrigins.append(origin); return [] }
+        )
+
+        page.drawing = drawing([CGPoint(x: 100, y: 500), CGPoint(x: 120, y: 510), CGPoint(x: 140, y: 500)])
+        let marks = await coordinator.pushEnrichedSnapshot(for: page)
+        guard let mark = marks.first else { return XCTFail("expected one mark") }
+
+        await coordinator.dispatch(.write(latex: "x=1", anchor: .belowLast))
+
+        XCTAssertEqual(capturedOrigins.count, 1)
+        XCTAssertEqual(capturedOrigins[0].x, mark.bbox.minX, accuracy: 0.01, "x must align with the student's ink, not sit in a right-hand column")
+        XCTAssertEqual(capturedOrigins[0].y, mark.bbox.maxY + 40, accuracy: 0.01, "y must sit ~40pt below the bottom of the student's work")
+    }
+
+    func testWriteWithNoInkUsesFallbackMargins() async {
+        let session = FakeTutorSession()
+        let performer = FakeAnnotationPerformer()
+        let page = PageModel(role: .student)
+        var capturedOrigins: [CGPoint] = []
+        let coordinator = makeCoordinator(
+            session: session, performer: performer, page: page,
+            onWrite: { _, origin in capturedOrigins.append(origin); return [] }
+        )
+
+        await coordinator.dispatch(.write(latex: "x=1", anchor: .belowLast))
+
+        XCTAssertEqual(capturedOrigins, [CGPoint(x: 60, y: 80)], "with no ink to align under, the first write must fall back to fixed margins")
+    }
+
+    func testSecondWriteStacksBelowFirstWritesBounds() async {
+        let session = FakeTutorSession()
+        let performer = FakeAnnotationPerformer()
+        let page = PageModel(role: .student)
+        let glyphs = [fakeGlyph("a", CGRect(x: 100, y: 80, width: 20, height: 30))]
+        var capturedOrigins: [CGPoint] = []
+        let coordinator = makeCoordinator(
+            session: session, performer: performer, page: page,
+            onWrite: { _, origin in capturedOrigins.append(origin); return glyphs }
+        )
+
+        await coordinator.dispatch(.write(latex: "a", anchor: .belowLast))
+        await coordinator.dispatch(.write(latex: "b", anchor: .belowLast))
+
+        XCTAssertEqual(capturedOrigins.count, 2)
+        XCTAssertEqual(capturedOrigins[0], CGPoint(x: 60, y: 80))
+        // lastWriteRect after the first write = the glyphs' union bounds
+        // (maxY 110); the second write must stack 40pt below THAT, not
+        // repeat the same fallback origin.
+        XCTAssertEqual(capturedOrigins[1], CGPoint(x: 60, y: 150))
+    }
+
+    func testWriteReDerivesFromInkThatExtendsPastLastWriteRect() async {
+        // The "never write ON or OVER the student's ink" law's teeth: if the
+        // student writes further down AFTER the tutor's last write landed,
+        // the next write must re-derive from their new bottommost mark, not
+        // stack under a now-stale `lastWriteRect` and land on top of it.
+        let session = FakeTutorSession()
+        let performer = FakeAnnotationPerformer()
+        let page = PageModel(role: .student)
+        let glyphs = [fakeGlyph("a", CGRect(x: 100, y: 80, width: 20, height: 30))]
+        var capturedOrigins: [CGPoint] = []
+        let coordinator = makeCoordinator(
+            session: session, performer: performer, page: page,
+            onWrite: { _, origin in capturedOrigins.append(origin); return glyphs }
+        )
+
+        await coordinator.dispatch(.write(latex: "a", anchor: .belowLast)) // lastWriteRect maxY = 110
+
+        page.drawing = drawing([CGPoint(x: 50, y: 400), CGPoint(x: 70, y: 410), CGPoint(x: 90, y: 400)])
+        let marks = await coordinator.pushEnrichedSnapshot(for: page)
+        guard let mark = marks.first else { return XCTFail("expected one mark") }
+
+        await coordinator.dispatch(.write(latex: "b", anchor: .belowLast))
+
+        XCTAssertEqual(capturedOrigins.count, 2)
+        XCTAssertEqual(capturedOrigins[1].y, mark.bbox.maxY + 40, accuracy: 0.01)
+        XCTAssertEqual(capturedOrigins[1].x, mark.bbox.minX, accuracy: 0.01)
+    }
+
+    func testWriteXClampsToMinimumLeftMargin() async {
+        let session = FakeTutorSession()
+        let performer = FakeAnnotationPerformer()
+        let page = PageModel(role: .student)
+        var capturedOrigins: [CGPoint] = []
+        let coordinator = makeCoordinator(
+            session: session, performer: performer, page: page,
+            onWrite: { _, origin in capturedOrigins.append(origin); return [] }
+        )
+
+        // Ink starts almost flush with the page's left edge.
+        page.drawing = drawing([CGPoint(x: 2, y: 200), CGPoint(x: 5, y: 205), CGPoint(x: 8, y: 200)])
+        _ = await coordinator.pushEnrichedSnapshot(for: page)
+
+        await coordinator.dispatch(.write(latex: "x=1", anchor: .belowLast))
+
+        XCTAssertEqual(capturedOrigins[0].x, 20, "x must never clamp below the hard left margin, even if the ink starts right at the edge")
+    }
+
+    func testWriteXClampsWithinRightBuffer() async {
+        let session = FakeTutorSession()
+        let performer = FakeAnnotationPerformer()
+        let page = PageModel(role: .student)
+        var capturedOrigins: [CGPoint] = []
+        let coordinator = makeCoordinator(
+            session: session, performer: performer, page: page,
+            onWrite: { _, origin in capturedOrigins.append(origin); return [] }
+        )
+
+        // Ink starts almost flush with the page's right edge (page width 768).
+        page.drawing = drawing([CGPoint(x: 760, y: 200), CGPoint(x: 764, y: 205), CGPoint(x: 767, y: 200)])
+        _ = await coordinator.pushEnrichedSnapshot(for: page)
+
+        await coordinator.dispatch(.write(latex: "x=1", anchor: .belowLast))
+
+        XCTAssertEqual(capturedOrigins[0].x, 668, "x must clamp so at least writeMinXBuffer stays free from the right edge")
+    }
+
+    func testWriteFallsBackToRightOverflowWhenVerticalSpaceExhausted() async {
+        // Ink positioned so below-work placement would run the write past
+        // the page's bottom margin (maxY + 40 > 984), but the ink's TOP
+        // (minY) is still comfortably above that margin -- so
+        // rightOverflowOrigin()'s "top of the most recent line" branch
+        // resolves cleanly, without cascading into its own "start below
+        // everything" sub-fallback (which a maxY much closer to minY, or
+        // ink even further down the page, would trigger instead).
+        //
+        // Monotonic (strictly increasing x and y, no direction reversal) so
+        // PencilKit's own path smoothing doesn't round off a cusp and pull
+        // the bbox in from what the raw points suggest -- a zigzag/"hump"
+        // stroke (up then back down) measurably does that (verified empirically:
+        // an up-then-down triangle peaking at y=950 rendered a bbox.maxY of
+        // only 935, ~15pt short of the raw peak).
+        let session = FakeTutorSession()
+        let performer = FakeAnnotationPerformer()
+        let page = PageModel(role: .student)
+        var capturedOrigins: [CGPoint] = []
+        let coordinator = makeCoordinator(
+            session: session, performer: performer, page: page,
+            onWrite: { _, origin in capturedOrigins.append(origin); return [] }
+        )
+
+        page.drawing = drawing([CGPoint(x: 100, y: 900), CGPoint(x: 120, y: 940), CGPoint(x: 140, y: 975)])
+        let marks = await coordinator.pushEnrichedSnapshot(for: page)
+        guard let mark = marks.first else { return XCTFail("expected one mark") }
+        XCTAssertGreaterThan(mark.bbox.maxY + 40, Self.testPageSize.height - 40, "test setup must actually exhaust vertical room below the work")
+        XCTAssertLessThanOrEqual(mark.bbox.minY, Self.testPageSize.height - 40, "test setup must NOT also exhaust the fallback's own top-of-line position")
+
+        await coordinator.dispatch(.write(latex: "x=1", anchor: .belowLast))
+
+        let expectedX = max(mark.bbox.maxX + 32, Self.testPageSize.width * 0.5)
+        XCTAssertEqual(capturedOrigins[0].x, expectedX, accuracy: 0.01)
+        XCTAssertEqual(capturedOrigins[0].y, mark.bbox.minY, accuracy: 0.01, "fallback y aligns with the top of the student's most recent line")
+    }
+
+    // MARK: - SHAPE: promoted from stretch to fully rendered, same
+    // below-work-first placement law as WRITE.
+
+    func testShapeRendersOnSharedPageAndIsJournaled() async {
+        let session = FakeTutorSession()
+        let performer = FakeAnnotationPerformer()
+        let page = PageModel(role: .student)
+        let coordinator = makeCoordinator(session: session, performer: performer, page: page)
+
+        await coordinator.dispatch(.shape(kind: "polygon", points: [CGPoint(x: 0, y: 0), CGPoint(x: 1, y: 0), CGPoint(x: 0, y: 1)], label: "right triangle"))
+
+        XCTAssertEqual(performer.calls.count, 1)
+        XCTAssertEqual(performer.calls[0].page.id, page.id)
+        guard case .shape(let kind, _, let label, _) = performer.calls[0].annotation else {
+            return XCTFail("expected .shape annotation")
+        }
+        XCTAssertEqual(kind, "polygon")
+        XCTAssertEqual(label, "right triangle")
+        XCTAssertEqual(coordinator.journal.last?.event, .tagRendered(tag: "SHAPE:polygon", markIds: []))
+    }
+
+    func testShapeBelowWorkOriginMatchesInkLeftEdgeAndBottom() async {
+        let session = FakeTutorSession()
+        let performer = FakeAnnotationPerformer()
+        let page = PageModel(role: .student)
+        let coordinator = makeCoordinator(session: session, performer: performer, page: page)
+
+        page.drawing = drawing([CGPoint(x: 100, y: 500), CGPoint(x: 120, y: 510), CGPoint(x: 140, y: 500)])
+        let marks = await coordinator.pushEnrichedSnapshot(for: page)
+        guard let mark = marks.first else { return XCTFail("expected one mark") }
+
+        await coordinator.dispatch(.shape(kind: "line", points: [CGPoint(x: 0, y: 0), CGPoint(x: 1, y: 1)], label: ""))
+
+        guard case .shape(_, _, _, let box) = performer.calls[0].annotation else {
+            return XCTFail("expected .shape annotation")
+        }
+        XCTAssertEqual(box.minX, mark.bbox.minX, accuracy: 0.01)
+        XCTAssertEqual(box.minY, mark.bbox.maxY + 40, accuracy: 0.01)
+    }
+
+    func testShapeFallsBackToRightHalfBoxWhenVerticalSpaceExhausted() async {
+        let session = FakeTutorSession()
+        let performer = FakeAnnotationPerformer()
+        let page = PageModel(role: .student)
+        let coordinator = makeCoordinator(session: session, performer: performer, page: page)
+
+        page.drawing = drawing([CGPoint(x: 100, y: 990), CGPoint(x: 120, y: 995), CGPoint(x: 140, y: 990)])
+        _ = await coordinator.pushEnrichedSnapshot(for: page)
+
+        await coordinator.dispatch(.shape(kind: "line", points: [CGPoint(x: 0, y: 0), CGPoint(x: 1, y: 1)], label: ""))
+
+        guard case .shape(_, _, _, let box) = performer.calls[0].annotation else {
+            return XCTFail("expected .shape annotation")
+        }
+        XCTAssertEqual(box, RoughGeometry.shapeContentBox(pageSize: Self.testPageSize))
+    }
+
+    func testWriteAfterShapeStacksBelowShapesBox() async {
+        // Proves `lastWriteRect` is shared between WRITE and SHAPE, not two
+        // independent trackers -- a shape then a write back-to-back must
+        // key off the SAME rect, not overlap.
+        //
+        // `nextShapeBox()` deliberately hands a below-work shape ALL the
+        // remaining room down to the page's bottom margin (see its doc:
+        // "sizing the box to whatever room remains"), so its `maxY` always
+        // lands right at the page's exhaustion threshold -- which means the
+        // very next write's `belowWorkOrigin()` is *always* exhausted
+        // (`box.maxY + 40` necessarily overshoots the bottom margin) and
+        // the write cascades into `rightOverflowOrigin()`'s "top of line"
+        // slot instead. That's still `lastWriteRect`-driven placement (the
+        // fallback's own `y = lastWriteRect.maxY + writeLineGap` reads the
+        // SAME `box` this test captured), just via the fallback's formula
+        // rather than `belowWorkOrigin()`'s -- proving the sharing without
+        // asserting a below-work stack this particular production rule can
+        // never actually produce right after a shape.
+        let session = FakeTutorSession()
+        let performer = FakeAnnotationPerformer()
+        let page = PageModel(role: .student)
+        var capturedOrigins: [CGPoint] = []
+        let coordinator = makeCoordinator(
+            session: session, performer: performer, page: page,
+            onWrite: { _, origin in capturedOrigins.append(origin); return [] }
+        )
+
+        await coordinator.dispatch(.shape(kind: "line", points: [CGPoint(x: 0, y: 0), CGPoint(x: 1, y: 1)], label: ""))
+        guard case .shape(_, _, _, let box) = performer.calls[0].annotation else {
+            return XCTFail("expected .shape annotation")
+        }
+
+        await coordinator.dispatch(.write(latex: "x=1", anchor: .belowLast))
+
+        XCTAssertEqual(capturedOrigins.count, 1)
+        XCTAssertEqual(capturedOrigins[0].y, box.maxY + 24, accuracy: 0.01, "the write's y must still derive from the shape's box, via the right-overflow fallback's line gap")
+        XCTAssertEqual(capturedOrigins[0].x, Self.testPageSize.width * 0.5, accuracy: 0.01)
+    }
+
+    // MARK: - WAIT / PLOT
+
     func testWaitIsLoggedAndNoOp() async {
         let session = FakeTutorSession()
         let performer = FakeAnnotationPerformer()
-        let studentPage = PageModel(role: .student)
-        let tutorPage = PageModel(role: .tutor)
-        let coordinator = makeCoordinator(session: session, performer: performer, studentPage: studentPage, tutorPage: tutorPage)
+        let page = PageModel(role: .student)
+        let coordinator = makeCoordinator(session: session, performer: performer, page: page)
 
         await coordinator.dispatch(.wait(5))
 
@@ -400,21 +657,16 @@ final class TutorCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.journal.last?.event, .waited(seconds: 5))
     }
 
-    func testPlotAndShapeAreLoggedAndDropped() async {
+    func testPlotIsLoggedAndDropped() async {
         let session = FakeTutorSession()
         let performer = FakeAnnotationPerformer()
-        let studentPage = PageModel(role: .student)
-        let tutorPage = PageModel(role: .tutor)
-        let coordinator = makeCoordinator(session: session, performer: performer, studentPage: studentPage, tutorPage: tutorPage)
+        let page = PageModel(role: .student)
+        let coordinator = makeCoordinator(session: session, performer: performer, page: page)
 
         await coordinator.dispatch(.plot("y=sin(x)"))
-        await coordinator.dispatch(.shape(kind: "circle", points: [], label: "the region"))
 
         XCTAssertTrue(performer.calls.isEmpty)
-        XCTAssertEqual(coordinator.journal.map(\.event), [
-            .tagDropped(tag: "PLOT", reason: "renderer not implemented"),
-            .tagDropped(tag: "SHAPE:circle", reason: "renderer not implemented"),
-        ])
+        XCTAssertEqual(coordinator.journal.last?.event, .tagDropped(tag: "PLOT", reason: "renderer not implemented"))
     }
 
     // MARK: - 4. Journal cap + tag stripping
@@ -422,9 +674,8 @@ final class TutorCoordinatorTests: XCTestCase {
     func testJournalCapsAt50() async {
         let session = FakeTutorSession()
         let performer = FakeAnnotationPerformer()
-        let studentPage = PageModel(role: .student)
-        let tutorPage = PageModel(role: .tutor)
-        let coordinator = makeCoordinator(session: session, performer: performer, studentPage: studentPage, tutorPage: tutorPage)
+        let page = PageModel(role: .student)
+        let coordinator = makeCoordinator(session: session, performer: performer, page: page)
 
         for i in 1...60 {
             await coordinator.dispatch(.wait(i))
@@ -440,9 +691,8 @@ final class TutorCoordinatorTests: XCTestCase {
     func testJournalJSONRoundTripsAndIsCapped() async {
         let session = FakeTutorSession()
         let performer = FakeAnnotationPerformer()
-        let studentPage = PageModel(role: .student)
-        let tutorPage = PageModel(role: .tutor)
-        let coordinator = makeCoordinator(session: session, performer: performer, studentPage: studentPage, tutorPage: tutorPage)
+        let page = PageModel(role: .student)
+        let coordinator = makeCoordinator(session: session, performer: performer, page: page)
 
         for i in 1...55 {
             await coordinator.dispatch(.wait(i))
@@ -467,38 +717,13 @@ final class TutorCoordinatorTests: XCTestCase {
         XCTAssertEqual(result, "nothing to strip here")
     }
 
-    func testNotifyTutorPageClosedJournalsAndAllowsReopen() async {
-        let session = FakeTutorSession()
-        let performer = FakeAnnotationPerformer()
-        let studentPage = PageModel(role: .student)
-        let tutorPage = PageModel(role: .tutor)
-        var openCount = 0
-        let coordinator = makeCoordinator(
-            session: session, performer: performer, studentPage: studentPage, tutorPage: tutorPage,
-            onOpenTutorPage: { openCount += 1 }
-        )
-
-        await coordinator.dispatch(.newPage)
-        coordinator.notifyTutorPageClosed()
-        await coordinator.dispatch(.write(latex: "x=1", anchor: .belowLast))
-
-        XCTAssertEqual(openCount, 2, "closing then writing must reopen the tutor page")
-        XCTAssertEqual(coordinator.journal.map(\.event), [
-            .tutorPageOpened,
-            .tutorPageClosed,
-            .tutorPageOpened,
-            .wrote(latex: "x=1", anchor: "below:last"),
-        ])
-    }
-
     // MARK: - 2. Transcript routing: full pipeline
 
     func testSubtitleStreamStripsTags() async {
         let session = FakeTutorSession()
         let performer = FakeAnnotationPerformer()
-        let studentPage = PageModel(role: .student)
-        let tutorPage = PageModel(role: .tutor)
-        let coordinator = makeCoordinator(session: session, performer: performer, studentPage: studentPage, tutorPage: tutorPage)
+        let page = PageModel(role: .student)
+        let coordinator = makeCoordinator(session: session, performer: performer, page: page)
 
         let stream = coordinator.subtitleStream
         coordinator.start()
@@ -521,12 +746,11 @@ final class TutorCoordinatorTests: XCTestCase {
     func testTagsFedThroughTranscriptAreDispatched() async {
         let session = FakeTutorSession()
         let performer = FakeAnnotationPerformer()
-        let studentPage = PageModel(role: .student)
-        let tutorPage = PageModel(role: .tutor)
-        let coordinator = makeCoordinator(session: session, performer: performer, studentPage: studentPage, tutorPage: tutorPage)
+        let page = PageModel(role: .student)
+        let coordinator = makeCoordinator(session: session, performer: performer, page: page)
 
-        studentPage.drawing = drawing([CGPoint(x: 100, y: 500), CGPoint(x: 120, y: 510), CGPoint(x: 140, y: 500)])
-        _ = await coordinator.pushEnrichedSnapshot(for: studentPage)
+        page.drawing = drawing([CGPoint(x: 100, y: 500), CGPoint(x: 120, y: 510), CGPoint(x: 140, y: 500)])
+        _ = await coordinator.pushEnrichedSnapshot(for: page)
 
         let stream = coordinator.subtitleStream
         coordinator.start()

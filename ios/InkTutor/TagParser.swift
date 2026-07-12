@@ -17,10 +17,12 @@ enum TutorTag: Equatable {
     /// parser accepts them, renderer logs-and-drops until promoted").
     /// Carries the raw plot expression through untouched.
     case plot(String)
-    /// Stretch tag, same status as `.plot`. No wire grammar for geometry
-    /// exists yet, and the model can never emit coordinates (Global
-    /// Constraint), so `points` is always empty here — this case only
-    /// exists so a future renderer has somewhere to land `kind`/`label`.
+    /// Promoted from stretch: the tutor draws its own diagram on its own
+    /// page. `points` are NORMALIZED `0...1` floats in the tutor page's
+    /// coordinate box — the one sanctioned exception to "the model never
+    /// emits coordinates" (Global Constraint), because a diagram on a blank
+    /// tutor page has no existing ink for a mark ID to anchor to. `label`
+    /// is `""` when the tag omits one.
     case shape(kind: String, points: [CGPoint], label: String)
 }
 
@@ -198,15 +200,58 @@ final class TagParser {
         return .below(id)
     }
 
-    /// `[SHAPE:kind|label]` (label optional). No wire grammar for geometry
-    /// exists yet (plan self-review: "SHAPE/PLOT renderers = stretch"), and
-    /// the model can't emit coordinates anyway, so `points` is always `[]`.
+    /// `kind` values `[SHAPE:...]` accepts — the HeyClicky-derived grammar
+    /// the plan adopts, narrowed to what a weekend demo needs: polygons
+    /// (the a²+b²=c² triangle) and simple curves.
+    private static let shapeKinds: Set<String> = ["polygon", "line", "curve"]
+
+    /// `[SHAPE:kind:x,y;x,y;...:label]` — `label` optional. `kind` is one
+    /// of `shapeKinds`; vertices are `;`-separated `x,y` pairs, each
+    /// coordinate a normalized `0...1` float (see `TutorTag.shape`'s doc).
+    /// Splitting on `:` with `maxSplits: 2` (not full split) mirrors
+    /// `parseWrite`'s pipe handling: it lets a label contain its own `:`
+    /// without slicing the tag apart, since only the *first two* colons are
+    /// structural here (kind/points), same shape as WRITE using only its
+    /// *last* `|` for the opposite reason (anchor is the suffix there,
+    /// label is the suffix here).
+    ///
+    /// Malformed input (unknown `kind`, unparseable vertex, fewer than 2
+    /// vertices) drops the whole tag — same discipline as every other tag.
+    /// A vertex coordinate outside `0...1` is clamped rather than dropped:
+    /// a diagram a hair past the edge of its drawing box is still a usable
+    /// diagram, and clamping can't misplace it the way a bad coordinate
+    /// misplaces an annotation (there's no existing ink to point at wrong).
     private static func parseShape(_ body: Substring) -> TutorTag? {
-        guard !body.isEmpty else { return nil }
-        let parts = body.split(separator: "|", maxSplits: 1, omittingEmptySubsequences: false)
+        let parts = body.split(separator: ":", maxSplits: 2, omittingEmptySubsequences: false)
+        guard parts.count >= 2 else { return nil }
+
         let kind = String(parts[0])
-        guard !kind.isEmpty else { return nil }
-        let label = parts.count > 1 ? String(parts[1]) : ""
-        return .shape(kind: kind, points: [], label: label)
+        guard shapeKinds.contains(kind) else { return nil }
+
+        guard let points = parsePoints(parts[1]), points.count >= 2 else { return nil }
+
+        let label = parts.count > 2 ? String(parts[2]) : ""
+        return .shape(kind: kind, points: points, label: label)
+    }
+
+    /// `x,y;x,y;...` -> `[CGPoint]`, each component clamped into `0...1`.
+    /// `nil` if any vertex fails to parse as exactly two comma-separated
+    /// numbers — a single bad vertex invalidates the whole shape rather
+    /// than silently dropping a point and distorting it.
+    private static func parsePoints(_ raw: Substring) -> [CGPoint]? {
+        guard !raw.isEmpty else { return nil }
+        var points: [CGPoint] = []
+        for vertex in raw.split(separator: ";", omittingEmptySubsequences: false) {
+            let coords = vertex.split(separator: ",", omittingEmptySubsequences: false)
+            guard coords.count == 2,
+                  let x = Double(coords[0]),
+                  let y = Double(coords[1]) else { return nil }
+            points.append(CGPoint(x: clampUnit(x), y: clampUnit(y)))
+        }
+        return points
+    }
+
+    private static func clampUnit(_ value: Double) -> CGFloat {
+        CGFloat(min(max(value, 0), 1))
     }
 }

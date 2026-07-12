@@ -784,13 +784,13 @@ private struct VoiceBarPreviewHost: View {
     private let session = PreviewTutorSession()
 
     var body: some View {
+        let page = PageModel(role: .student)
         let coordinator = TutorCoordinator(
             session: session,
-            studentPage: PageModel(role: .student),
-            tutorPage: PageModel(role: .tutor),
+            studentPage: page,
+            tutorPage: page,
             pageSize: CGSize(width: 768, height: 1024),
             performer: PreviewAnnotationPerformer(),
-            openTutorPage: {},
             writeHandler: { _, _ in [] }
         )
         return ZStack {

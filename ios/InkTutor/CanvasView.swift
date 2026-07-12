@@ -3,7 +3,10 @@ import PencilKit
 
 /// One page's PencilKit canvas: white paper, optional PDF underlay, native
 /// pinch-zoom (PKCanvasView IS a UIScrollView, no wrapper needed), tool
-/// picker. Used for both the student page and the tutor popup page.
+/// picker. Post-pivot there's exactly one page (the student's) — this type
+/// stayed generic over `PageModel.role` anyway (see `PageModel`'s doc:
+/// "keep `PageModel.role` itself to avoid churn"), so it's unchanged except
+/// for which role gets a `TutorWriter` below.
 ///
 /// The PDF underlay is a sibling view *outside* the scroll view's ownmoo
 /// content, manually kept in sync with the canvas's contentOffset/zoomScale
@@ -13,8 +16,9 @@ import PencilKit
 struct PageCanvasRepresentable: UIViewRepresentable {
     @ObservedObject var page: PageModel
     let pageSize: CGSize
-    /// Snapshot pushes (Task 12, student page only for now) — nil for the
-    /// tutor's own popup page, which has nothing to push yet.
+    /// Snapshot pushes (Task 12, student page only — the role gate below is
+    /// now trivially true post-pivot since there's only the one page, but
+    /// left in place per `PageModel.role`'s "keep it to avoid churn").
     var session: TutorSession? = nil
     /// The coordinator that turns a debounced stroke-end into an enriched
     /// (labeled + registry JSON) snapshot push — student page only, same
@@ -22,11 +26,10 @@ struct PageCanvasRepresentable: UIViewRepresentable {
     var tutorCoordinator: TutorCoordinator? = nil
     /// Reports the page's `AnnotationOverlayView` once `makeUIView` creates
     /// it, so `CanvasScreen` can hand it to the `AnnotationPerforming`
-    /// adapter it passes into `TutorCoordinator` (wiring Step 2). Called on
-    /// every page's canvas — annotate actions can land on either page's ink.
+    /// adapter it passes into `TutorCoordinator` (wiring Step 2).
     var onOverlayReady: ((AnnotationOverlayView) -> Void)? = nil
     /// Reports the page's `TutorWriter` once `makeUIView` creates it —
-    /// tutor page only (wiring Step 3).
+    /// student page only (wiring Step 3).
     var onWriterReady: ((TutorWriter) -> Void)? = nil
 
     static var drawingPolicy: PKCanvasViewDrawingPolicy {
@@ -73,23 +76,24 @@ struct PageCanvasRepresentable: UIViewRepresentable {
 
         // Annotation overlay: sibling ABOVE the canvas (added after it, so it
         // draws on top), non-interactive, tracked to zoom/scroll the same way
-        // `paperView` is below (`syncUnderlay`/`setZoom`). Exists on both
-        // pages — CIRCLE/UNDERLINE/ARROW/HIGHLIGHT can land on either page's
-        // ink (wiring Step 2).
+        // `paperView` is below (`syncUnderlay`/`setZoom`). CIRCLE/UNDERLINE/
+        // ARROW/SHAPE all land here (wiring Step 2).
         let overlay = AnnotationOverlayView(pageSize: pageSize)
         container.addSubview(overlay)
         context.coordinator.overlay = overlay
 
-        // TutorWriter: tutor page only (WRITE is structurally always the
-        // tutor's own page — wiring Step 3). `TutorWriter.init(overlayOn:)`
-        // infers its page size from the host view's *current* bounds, so it
-        // has to be built against `paperView` (already sized to `pageSize`
-        // at this point) rather than `container` (still zero-sized pre-
-        // layout) — then re-homed into `container` so its own `setZoom`
-        // (identical convention to `AnnotationOverlayView`'s) positions it
-        // in the same coordinate space as the overlay above.
+        // TutorWriter: student page only post-pivot (there's no separate
+        // tutor page anymore — the tutor writes in the open space to the
+        // right of the student's own ink, on their page — wiring Step 3).
+        // `TutorWriter.init(overlayOn:)` infers its page size from the host
+        // view's *current* bounds, so it has to be built against `paperView`
+        // (already sized to `pageSize` at this point) rather than
+        // `container` (still zero-sized pre-layout) — then re-homed into
+        // `container` so its own `setZoom` (identical convention to
+        // `AnnotationOverlayView`'s) positions it in the same coordinate
+        // space as the overlay above.
         var writer: TutorWriter?
-        if page.role == .tutor {
+        if page.role == .student {
             let w = TutorWriter(overlayOn: paperView)
             w.removeFromSuperview()
             container.addSubview(w)
@@ -108,8 +112,8 @@ struct PageCanvasRepresentable: UIViewRepresentable {
         context.coordinator.canvasView = canvasView
         context.coordinator.picker = picker
         context.coordinator.pageSize = pageSize
-        // Student page only for now (Task 12) — the tutor popup page passes
-        // no session and never pushes snapshots.
+        // Student page only (Task 12) — role gate kept for symmetry with
+        // `updateUIView` below even though it's trivially true now.
         context.coordinator.session = page.role == .student ? session : nil
         context.coordinator.tutorCoordinator = page.role == .student ? tutorCoordinator : nil
         context.coordinator.syncUnderlay()

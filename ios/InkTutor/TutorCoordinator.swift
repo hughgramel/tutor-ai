@@ -2,64 +2,59 @@ import Foundation
 import UIKit
 
 /// The integration glue between `TutorSession`, `MarkRegistry`, `TagParser`,
-/// and the annotation renderer (plan Task 7, adapted). This file is
-/// deliberately STANDALONE and UNWIRED: it is built against protocol seams
-/// only and is never imported by any existing screen. It ships on its own
-/// branch ahead of `voicebar-v2` (which is still reworking `CanvasScreen`/
-/// `CanvasView`/`VoiceBarView`/`RealtimeSession`) so those files can land
-/// without a merge conflict here; wiring `TutorCoordinator` in is a followup
-/// pass once that branch is verified. See the bottom-of-file "Wiring" note
-/// for the exact steps.
-///
-/// Nothing in this file references `CanvasScreen`, `CanvasView`,
-/// `VoiceBarView`, or `RealtimeSession` by name — only `TutorSession`
-/// (protocol), `PageModel` (already provider/UI-agnostic), and the two
-/// closures/protocol declared below.
+/// and the annotation renderer (plan Task 7, adapted; wired into
+/// `CanvasScreen`/`CanvasView`). Post-pivot (Hugh, 2026-07-12: "remove the
+/// 'AI gets its own page', we can just work on the right alongside the
+/// user") there is exactly ONE `PageModel` on screen — `studentPage` and
+/// `tutorPage` below are the SAME instance, passed twice at `CanvasScreen`'s
+/// construction site. That collapse is deliberate, not an oversight: every
+/// `isTutorPage`/`resolveMark`/`nextMarkID` check already keyed off
+/// `PageModel.id` rather than object identity, so aliasing the two
+/// parameters to one page means ink marks, written marks, and the writer's
+/// `CALayer` all merge into that one page's registry/snapshot for free, with
+/// no change to the internal bookkeeping below. `PageModel.role` still has a
+/// `.tutor` case (kept to avoid churn — see `PageModel.swift`); it's just
+/// never constructed anymore.
 
 // MARK: - Protocol seams
 
 /// Performs one of the four annotate-only visual actions
-/// (`AnnotationOverlayView`'s `Annotation` enum) on a specific page. A
-/// protocol rather than a bare closure because dispatch has to route to one
-/// of *two* overlay instances (student page vs. the tutor's popup page) —
-/// the concrete conformer, added at wiring time, is a thin adapter that
-/// picks the right `AnnotationOverlayView.perform(_:)` by comparing `page`
-/// against the screen's `studentPage`/`tutorPage`.
+/// (`AnnotationOverlayView`'s `Annotation` enum) on a specific page. Still a
+/// protocol rather than a bare closure even though there's only one overlay
+/// now — keeps the seam testable (`FakeAnnotationPerformer`) without
+/// depending on `AnnotationOverlayView`'s real `UIView`.
 protocol AnnotationPerforming: AnyObject {
     func perform(_ annotation: Annotation, on page: PageModel)
 }
 
-/// `[WRITE:latex|anchor]` handler. `TutorWriter` (plan Task 11) is being
-/// built in parallel by someone else — protocolled here as a closure so this
-/// file compiles today and the real writer drops in with zero edits to this
-/// file. No page parameter: WRITE is structurally always the tutor's own
-/// page (see `dispatchWrite` below) — there is no wire representation for
-/// "write on the student's page" for a handler to even receive.
+/// `[WRITE:latex]` handler. `TutorWriter` (Task 11) is the real
+/// implementation — protocolled here as a closure so this file doesn't
+/// depend on it directly. Takes the ALREADY-COMPUTED page-space origin
+/// (`TutorCoordinator.nextWriteOrigin()`), not the model's requested
+/// `Anchor`: write placement is entirely client-owned now (the "never write
+/// on or over the student's ink" law replaces the old "own page only"
+/// rule), so by the time this closure is called there's nothing left for
+/// the anchor to influence.
 ///
 /// `async`, returning the written glyphs' placements (page/canvas space):
 /// `TutorWriter.write` lays out per-glyph frames internally but only ever
-/// handed back the aggregate bounding rect — this closure's return value is
+/// hands back the aggregate bounding rect — this closure's return value is
 /// how those per-glyph frames reach `TutorCoordinator`, which turns them
 /// into addressable `Mark`s (`appendWrittenMarks`) so `[ARROW:a>b]`/
 /// `[CIRCLE:n]` can target the tutor's own handwriting, not just ink. Empty
 /// array if the writer isn't attached yet or the latex failed to parse.
-typealias WriteHandler = (_ latex: String, _ anchor: Anchor) async -> [TutorWriterLayout.GlyphPlacement]
-
-/// Opens the tutor's popup page. At wiring time this is
-/// `{ showTutorPage = true }` in `CanvasScreen`.
-typealias OpenTutorPageHandler = () -> Void
+typealias WriteHandler = (_ latex: String, _ origin: CGPoint) async -> [TutorWriterLayout.GlyphPlacement]
 
 /// Reports the `CALayer` holding the tutor's handwritten glyph content —
 /// `TutorWriter.contentLayer`, already in untransformed page-point space —
-/// so `pushEnrichedSnapshot` can composite it into the tutor page's
+/// so `pushEnrichedSnapshot` can composite it into the shared page's
 /// snapshot the same way `SnapshotRenderer` already composites
 /// `page.drawing`. `TutorWriter`'s `CAShapeLayer`s never enter any
-/// `PKDrawing`, so without this the tutor page's own snapshot would never
-/// show what the tutor wrote. Returns `nil` before the tutor page's
-/// `TutorWriter` exists yet (student page never calls this). Defaulted to
-/// `{ nil }` at `TutorCoordinator.init` so existing callers (tests, the
-/// `VoiceBarView` preview) that don't care about snapshot compositing don't
-/// need updating.
+/// `PKDrawing`, so without this the page's own snapshot would never show
+/// what the tutor wrote. Returns `nil` before `TutorWriter` exists yet.
+/// Defaulted to `{ nil }` at `TutorCoordinator.init` so existing callers
+/// (tests, the `VoiceBarView` preview) that don't care about snapshot
+/// compositing don't need updating.
 typealias WrittenLayerProvider = () -> CALayer?
 
 // MARK: - Journal (Task 7, capped)
@@ -79,8 +74,6 @@ enum JournalEvent: Codable, Equatable {
     case snapshotPushed(page: String, markCount: Int)
     case tagRendered(tag: String, markIds: [Int])
     case tagDropped(tag: String, reason: String)
-    case tutorPageOpened
-    case tutorPageClosed
     case wrote(latex: String, anchor: String)
     case waited(seconds: Int)
 }
@@ -109,7 +102,6 @@ final class TutorCoordinator {
     let tutorPage: PageModel
     private let pageSize: CGSize
     private let performer: AnnotationPerforming
-    private let openTutorPageHandler: OpenTutorPageHandler
     private let writeHandler: WriteHandler
     private let writtenLayerProvider: WrittenLayerProvider
 
@@ -119,7 +111,6 @@ final class TutorCoordinator {
         tutorPage: PageModel,
         pageSize: CGSize,
         performer: AnnotationPerforming,
-        openTutorPage: @escaping OpenTutorPageHandler,
         writeHandler: @escaping WriteHandler,
         writtenLayerProvider: @escaping WrittenLayerProvider = { nil }
     ) {
@@ -128,7 +119,6 @@ final class TutorCoordinator {
         self.tutorPage = tutorPage
         self.pageSize = pageSize
         self.performer = performer
-        self.openTutorPageHandler = openTutorPage
         self.writeHandler = writeHandler
         self.writtenLayerProvider = writtenLayerProvider
     }
@@ -161,6 +151,16 @@ final class TutorCoordinator {
     /// would say "circle the whole equation"), incrementing per call so two
     /// separate WRITEs don't collide on the same line number.
     private var nextWrittenLine = 0
+    /// The bounding rect of whatever the tutor most recently placed on the
+    /// page — a WRITE's glyph bounds or a SHAPE's content box — `nil` until
+    /// the first one lands. Shared between both (not "lastWRITERect") so a
+    /// write followed by a shape, or vice versa, stack instead of
+    /// overlapping. `belowWorkOrigin()`/`nextShapeBox()` place everything
+    /// after the first directly below this (the "keep going down the
+    /// column" convention `TutorWriteRouter.lastRect` used before placement
+    /// moved into this file — see `belowWorkOrigin()`'s doc for the full
+    /// law).
+    private var lastWriteRect: CGRect?
 
     /// Computes marks for `page.drawing`, renders + labels a snapshot, and
     /// pushes both the labeled JPEG and the registry JSON to the session.
@@ -326,11 +326,26 @@ final class TutorCoordinator {
         case .underline(let id):
             await dispatchAnnotation(Annotation.underline, tagName: "UNDERLINE", id: id)
         case .highlight(let id):
-            await dispatchAnnotation(Annotation.highlight, tagName: "HIGHLIGHT", id: id)
+            // Killed (Hugh, 2026-07-12: "remove the highlighting tool it
+            // looks ugly, pointing is better"). The parser still accepts
+            // HIGHLIGHT so a model that hasn't caught up to the new prompt
+            // never crashes the tag pipeline — it's just dropped here,
+            // same discipline as PLOT/an unresolved mark id, never routed
+            // to the performer. `AnnotationOverlayView.Annotation.highlight`
+            // and its `RoughGeometry.highlightPath` stay in place but are
+            // now unreachable from this file.
+            TutorLog.shared.info("TutorCoordinator: dropped HIGHLIGHT:\(id) — highlight tool removed")
+            appendJournal(.tagDropped(tag: "HIGHLIGHT:\(id)", reason: "highlight tool removed"))
         case .arrow(let from, let to):
             await dispatchArrow(fromID: from, toID: to)
         case .newPage:
-            openTutorPageIfNeeded()
+            // No-op (Hugh, 2026-07-12: "remove the 'AI gets its own page'").
+            // The parser still accepts NEWPAGE so an in-flight session
+            // built against the old prompt doesn't break; there is nothing
+            // left to open — the tutor already works on the one shared
+            // page, in the open space to the right of the student's ink.
+            TutorLog.shared.info("TutorCoordinator: dropped NEWPAGE — no-op, single shared canvas")
+            appendJournal(.tagDropped(tag: "NEWPAGE", reason: "no-op — single shared canvas"))
         case .write(let latex, let anchor):
             await dispatchWrite(latex: latex, anchor: anchor)
         case .wait(let seconds):
@@ -342,9 +357,20 @@ final class TutorCoordinator {
         case .plot(let expression):
             TutorLog.shared.info("TutorCoordinator: dropped PLOT (\(expression)) — renderer not implemented")
             appendJournal(.tagDropped(tag: "PLOT", reason: "renderer not implemented"))
-        case .shape(let kind, _, _):
-            TutorLog.shared.info("TutorCoordinator: dropped SHAPE:\(kind) — renderer not implemented")
-            appendJournal(.tagDropped(tag: "SHAPE:\(kind)", reason: "renderer not implemented"))
+        case .shape(let kind, let points, let label):
+            // SHAPE always renders on the shared page's overlay, scaled
+            // into `nextShapeBox()` — same placement law as WRITE (below
+            // the student's work, right-half overflow as fallback; see
+            // that method's doc). No `resolveMark` needed: there's no mark
+            // id, only normalized points, already validated/clamped 0...1
+            // by `TagParser.parseShape`. `TutorTag.shape.label` is `""`
+            // when the tag omits one; `Annotation.shape.label` wants `nil`
+            // for "no label" — bridged here since that's the cheapest place
+            // to do it.
+            let box = nextShapeBox()
+            performer.perform(.shape(kind: kind, points: points, label: label.isEmpty ? nil : label, box: box), on: studentPage)
+            lastWriteRect = box
+            appendJournal(.tagRendered(tag: "SHAPE:\(kind)", markIds: []))
         }
     }
 
@@ -401,49 +427,161 @@ final class TutorCoordinator {
         return nil
     }
 
-    /// WRITE is allowed ONLY on the tutor page — enforced structurally, not
-    /// by a runtime check: `TutorTag.write` carries no page argument (there
-    /// is no wire syntax for "write on the student's page"), and this
-    /// method never takes a `PageModel` parameter either, so there is no
-    /// code path through which a WRITE could reach the student page's
-    /// drawing. If the tutor page isn't open yet, open it first, then
-    /// write (never silently drop a WRITE just because NEWPAGE was
-    /// skipped).
+    /// WRITE now always lands directly on the student's own page, beneath
+    /// their own work — the client-enforced law that replaces both the old
+    /// "own page only" rule AND this file's own first cut at it (a fenced
+    /// column to the right of the ink). Hugh, 2026-07-12, revising that
+    /// first cut: "don't make it on the side; make it on the user's actual
+    /// canvas they're drawing on" — like a person tutoring on paper writes
+    /// underneath what's already there, not off in a margin.
+    /// `nextWriteOrigin()` computes where, ignoring the model's requested
+    /// `Anchor` entirely (it's still logged — see `describe(_:)` — for
+    /// journal fidelity, but no longer drives placement; same judgment call
+    /// `TutorWriteRouter` already made for `.below(id)` before this moved
+    /// client-side).
     ///
     /// Once the write completes, its glyphs become addressable marks
-    /// (`appendWrittenMarks`) and an enriched snapshot of the tutor page
+    /// (`appendWrittenMarks`) and an enriched snapshot of the shared page
     /// goes out immediately — the debounced push `CanvasView.Coordinator`
     /// schedules on stroke-end never fires here (nothing changed in any
     /// `PKDrawing`), so without this push the model would never learn the
     /// IDs it needs to target what the tutor just wrote.
     private func dispatchWrite(latex: String, anchor: Anchor) async {
-        openTutorPageIfNeeded()
-        let placements = await writeHandler(latex, anchor)
+        let origin = nextWriteOrigin()
+        let placements = await writeHandler(latex, origin)
         appendJournal(.wrote(latex: Self.stripTags(latex), anchor: describe(anchor)))
         guard !placements.isEmpty else { return }
+        lastWriteRect = placements.reduce(CGRect.null) { $0.union($1.frame) }
         appendWrittenMarks(placements)
         await pushEnrichedSnapshot(for: tutorPage)
     }
 
-    private func openTutorPageIfNeeded() {
-        guard !isTutorPageOpenState else { return }
-        isTutorPageOpenState = true
-        openTutorPageHandler()
-        appendJournal(.tutorPageOpened)
+    /// Vertical gap kept between the bottom of the student's work (or the
+    /// tutor's last write) and where the next write starts — the "never
+    /// write ON or OVER the student's ink" law's margin of safety in the
+    /// primary (below-work) placement mode.
+    private static let writeBelowGap: CGFloat = 40
+    /// Left edge used when there's no ink yet to align under (nothing on
+    /// the page for `belowWorkOrigin()` to read a left edge from).
+    private static let writeLeftMarginFallback: CGFloat = 60
+    /// Hard left clamp — a write never starts closer to the page edge than
+    /// this, even if the student's own ink starts right at the margin.
+    private static let writeMinX: CGFloat = 20
+    /// Kept clear from the page's right edge when clamping a write's x, so
+    /// there's always some width left to actually write into.
+    private static let writeMinXBuffer: CGFloat = 100
+    /// Gap kept clear between the rightmost student ink and where writing
+    /// starts, in the right-overflow FALLBACK mode only (`rightOverflowOrigin()`).
+    private static let writeRightGap: CGFloat = 32
+    /// Vertical gap between one WRITE's bounds and the next, in the
+    /// right-overflow FALLBACK mode only.
+    private static let writeLineGap: CGFloat = 24
+    /// Y for the very first write on a page with no ink yet (nothing to
+    /// align "below the student's work" against, in either mode).
+    private static let writeTopMarginFallback: CGFloat = 80
+    /// How close to the page's bottom edge a write's computed origin can
+    /// land before that mode counts as "vertically exhausted."
+    private static let writePageBottomMargin: CGFloat = 40
+    /// A `nextShapeBox()` result smaller than this on either axis isn't
+    /// worth drawing a diagram into — falls back to the right-half box
+    /// instead of squeezing a shape into a sliver of leftover space.
+    private static let shapeMinBoxSize: CGFloat = 150
+
+    /// Where the next `[WRITE:...]` should start, in page-space. Tries the
+    /// primary law first (`belowWorkOrigin()` — directly beneath the
+    /// student's own work); if there's no vertical room left for that,
+    /// falls back to `rightOverflowOrigin()` (this file's original
+    /// right-of-the-ink column, kept as the escape hatch Hugh's revision
+    /// explicitly asked for: "if vertical space runs out, THEN overflow to
+    /// the right of their work").
+    private func nextWriteOrigin() -> CGPoint {
+        belowWorkOrigin() ?? rightOverflowOrigin()
     }
 
-    /// Call from wiring code when the popup's own close button / scrim tap
-    /// dismisses it (the coordinator can't observe `CanvasScreen`'s
-    /// `@State` directly), so `dispatchWrite`'s open-if-needed check stays
-    /// accurate after a manual close.
-    func notifyTutorPageClosed() {
-        guard isTutorPageOpenState else { return }
-        isTutorPageOpenState = false
-        appendJournal(.tutorPageClosed)
+    /// Primary placement: directly below the student's own work, like a
+    /// tutor writing underneath what's on the page. `x` is left-aligned
+    /// with the student's ink (its leftmost edge, clamped inside the page)
+    /// — recomputed on every call, not just the first write, so a run of
+    /// writes reads as one visually consistent column under the student's,
+    /// not a first-write-only alignment that drifts on later calls. `y` is
+    /// below the LOWER of (the student's ink) and (the tutor's last write):
+    /// if the student has since written further down than the last write
+    /// landed, this re-derives from their new bottommost mark instead of
+    /// stacking under a now-stale `lastWriteRect` and landing on top of
+    /// what they just added. Returns `nil` — "no room" — when that `y`
+    /// would run past the page's bottom edge, so the caller can fall back
+    /// to `rightOverflowOrigin()`.
+    private func belowWorkOrigin() -> CGPoint? {
+        let inkMarks = currentMarks[studentPage.id] ?? []
+        let inkMinX = inkMarks.map(\.bbox.minX).min()
+        let inkMaxY = inkMarks.map(\.bbox.maxY).max()
+
+        let x = min(max(inkMinX ?? Self.writeLeftMarginFallback, Self.writeMinX), pageSize.width - Self.writeMinXBuffer)
+
+        let belowCandidates = [inkMaxY, lastWriteRect?.maxY].compactMap { $0 }
+        let y = belowCandidates.isEmpty
+            ? Self.writeTopMarginFallback
+            : belowCandidates.max()! + Self.writeBelowGap
+
+        guard y <= pageSize.height - Self.writePageBottomMargin else { return nil }
+        return CGPoint(x: x, y: y)
     }
 
-    private var isTutorPageOpenState = false
+    /// Fallback placement (superseded as the primary law by Hugh's
+    /// 2026-07-12 revision, kept as the vertical-exhaustion escape hatch):
+    /// `x: max(rightmost edge of all student marks + 32pt, pageWidth *
+    /// 0.5)`, `y:` the top of the student's most recently reached line for
+    /// the FIRST write in this mode, then stacked below `lastWriteRect` for
+    /// every write after that. If even THIS `y` would run the writing past
+    /// the page's bottom edge, placement continues below everything already
+    /// on the page (ink and prior writes alike) instead of overlapping the
+    /// last thing written in the right column.
+    private func rightOverflowOrigin() -> CGPoint {
+        let inkMarks = currentMarks[studentPage.id] ?? []
+        let rightmostInkEdge = inkMarks.map(\.bbox.maxX).max() ?? 0
+        let x = max(rightmostInkEdge + Self.writeRightGap, pageSize.width * 0.5)
 
+        let firstWriteY: CGFloat
+        if let mostRecentLine = inkMarks.map(\.line).max() {
+            let topsOnLine = inkMarks.filter { $0.line == mostRecentLine }.map(\.bbox.minY)
+            firstWriteY = topsOnLine.min() ?? Self.writeTopMarginFallback
+        } else {
+            firstWriteY = Self.writeTopMarginFallback
+        }
+        let y = lastWriteRect.map { $0.maxY + Self.writeLineGap } ?? firstWriteY
+
+        guard y > pageSize.height - Self.writePageBottomMargin else {
+            return CGPoint(x: x, y: y)
+        }
+        let contentBottoms = inkMarks.map(\.bbox.maxY) + [lastWriteRect?.maxY ?? 0]
+        let below = (contentBottoms.max() ?? 0) + Self.writeLineGap
+        return CGPoint(x: x, y: below)
+    }
+
+    /// Where the next `[SHAPE:...]` diagram draws, as a page-space box —
+    /// same two-mode law as `nextWriteOrigin()`: primary is below the
+    /// student's work (reusing `belowWorkOrigin()` for the top-left
+    /// corner, then sizing the box to whatever room remains), falling back
+    /// to `RoughGeometry.shapeContentBox`'s fixed right-half box if that
+    /// remaining room is too small to draw a diagram into
+    /// (`shapeMinBoxSize`). `dispatch(_:)`'s `.shape` case sets
+    /// `lastWriteRect` to whatever this returns, so a WRITE and a SHAPE
+    /// placed back-to-back stack instead of overlapping — same sharing
+    /// `belowWorkOrigin()` already relies on in the other direction.
+    private func nextShapeBox() -> CGRect {
+        guard let origin = belowWorkOrigin() else {
+            return RoughGeometry.shapeContentBox(pageSize: pageSize)
+        }
+        let width = pageSize.width - origin.x - Self.writeMinX
+        let height = pageSize.height - origin.y - Self.writePageBottomMargin
+        guard width >= Self.shapeMinBoxSize, height >= Self.shapeMinBoxSize else {
+            return RoughGeometry.shapeContentBox(pageSize: pageSize)
+        }
+        return CGRect(origin: origin, size: CGSize(width: width, height: height))
+    }
+
+    /// The model's requested anchor, kept for the journal only — placement
+    /// itself no longer consults it (see `dispatchWrite`'s doc comment).
     private func describe(_ anchor: Anchor) -> String {
         switch anchor {
         case .belowLast: return "below:last"
@@ -497,36 +635,13 @@ final class TutorCoordinator {
     }
 }
 
-// MARK: - Wiring (for later, once voicebar-v2 is verified and merged)
+// MARK: - Wiring status
 //
-// 1. `CanvasScreen` constructs one `TutorCoordinator` alongside its existing
-//    `studentPage`/`tutorPage`/`session`, passing:
-//      - `performer`: a small adapter conforming to `AnnotationPerforming`
-//        that holds refs to the student page's and tutor page's
-//        `AnnotationOverlayView` instances and picks the right one by
-//        comparing `page.id` against `studentPage.id`/`tutorPage.id`.
-//      - `openTutorPage`: `{ showTutorPage = true }`.
-//      - `writeHandler`: `TutorWriter`'s `write(latex:anchor:)` once that
-//        lands (Task 11); a no-op closure until then.
-// 2. `CanvasView.Coordinator.pushSnapshotIfDue()` (`CanvasView.swift`
-//    ~line 154) currently does
-//    `let snapshot = SnapshotRenderer.render(...); await session.pushImage(snapshot.jpeg)`.
-//    Replace those two lines with
-//    `await coordinator.pushEnrichedSnapshot(for: page)` — the debounce/
-//    min-interval/unchanged-drawing gating above it is unchanged.
-// 3. `VoiceBarView.streamTranscript()` (`VoiceBarView.swift` ~line 182)
-//    currently does `for await delta in session.transcriptDeltas`. Swap
-//    that to `for await text in coordinator.subtitleStream` and call
-//    `coordinator.start()` right after `session.connect()` succeeds
-//    (`VoiceBarView.connect()`, alongside the existing
-//    `connection = .live` assignment) instead of feeding raw deltas to
-//    `appendTranscriptDelta` — the stripped text already IS the line to
-//    append, no further parsing needed at that call site.
-// 4. `TutorPagePopup`'s close actions (`CanvasScreen.swift`: the X button
-//    and the scrim tap gesture, both `isPresented = false`) should also
-//    call `coordinator.notifyTutorPageClosed()` so `dispatchWrite`'s
-//    open-if-needed check stays accurate after a manual close.
-//
-// Protocol mismatch found against the current `TutorSession` shape: none —
-// `pushImage`/`pushEvent`/`transcriptDeltas` line up with this file's needs
-// exactly as declared in `TutorSession.swift`.
+// Already wired: `CanvasScreen` constructs one `TutorCoordinator`, passing
+// the SAME `PageModel` instance as both `studentPage` and `tutorPage` (see
+// this file's header comment), a `TutorAnnotationPerformer` adapter as
+// `performer`, and `TutorWriteRouter.handle(latex:origin:)` as
+// `writeHandler`. `CanvasView.Coordinator.pushSnapshotIfDue()` calls
+// `coordinator.pushEnrichedSnapshot(for:)`; `VoiceBarView` streams
+// `coordinator.subtitleStream` and calls `coordinator.start()` after
+// `session.connect()` succeeds.
