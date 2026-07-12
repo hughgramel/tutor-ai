@@ -117,7 +117,10 @@ struct PageCanvasRepresentable: UIViewRepresentable {
         }
 
         private func scheduleSnapshotPush() {
-            guard session != nil else { return }
+            // No render work at all while there's nowhere to send it —
+            // skips the debounce/render/push path entirely until the data
+            // channel is actually open.
+            guard let session, session.isConnected else { return }
             pushTask?.cancel()
             pushTask = Task { [weak self] in
                 try? await Task.sleep(nanoseconds: Coordinator.debounceNanoseconds)
@@ -128,7 +131,7 @@ struct PageCanvasRepresentable: UIViewRepresentable {
 
         @MainActor
         private func pushSnapshotIfDue() async {
-            guard let session, let page, let canvasView else { return }
+            guard let session, session.isConnected, let page, let canvasView else { return }
 
             if canvasView.drawing == lastPushedDrawing { return } // unchanged since last push
 

@@ -27,6 +27,16 @@ final class RealtimeSession: NSObject, TutorSession {
         }
     }
 
+    var audioLevel: AsyncStream<Float> {
+        AsyncStream { continuation in
+            self.audioLevelContinuation = continuation
+        }
+    }
+
+    var isConnected: Bool {
+        dataChannel?.readyState == .open
+    }
+
     func connect() async throws {
         TutorLog.shared.lifecycle("connect start")
         do {
@@ -62,10 +72,13 @@ final class RealtimeSession: NSObject, TutorSession {
 
     func pushImage(_ jpeg: Data) async {
         let dataURL = "data:image/jpeg;base64,\(jpeg.base64EncodedString())"
+        imageItemCounter += 1
+        let itemID = String(format: "img_%04d", imageItemCounter)
         TutorLog.shared.info("send image context: \(jpeg.count / 1024) KB JPEG")
-        send([
+        let sent = send([
             "type": "conversation.item.create",
             "item": [
+                "id": itemID,
                 "type": "message",
                 "role": "user",
                 "content": [
@@ -75,6 +88,32 @@ final class RealtimeSession: NSObject, TutorSession {
         ])
         // Deliberately no response.create — this pushes conversation
         // context only, per the plan (Task 7 owns the image-context budget).
+        guard sent else { return }
+        pushedImageItemIDs.append(itemID)
+        pruneOldImageItems()
+    }
+
+    /// Token-budget pruning (Task upgrade, 2026-07-12): only the 2 most
+    /// recent snapshot images stay live in the conversation — older ones
+    /// are deleted server-side so stale ink doesn't keep costing image
+    /// tokens on every turn. Registry/text items (pushEvent) are never
+    /// tracked here and so never deleted by this path. Client-generated
+    /// item ids (set on conversation.item.create above) mean no server
+    /// round-trip is needed to know what to delete.
+    private static let maxLiveImageItems = 2
+
+    private func pruneOldImageItems() {
+        while pushedImageItemIDs.count > Self.maxLiveImageItems {
+            let oldest = pushedImageItemIDs.removeFirst()
+            TutorLog.shared.info("prune snapshot item \(oldest) (\(pushedImageItemIDs.count) remaining)")
+            // Field name verified against the Realtime API's
+            // conversation.item.delete client event on developers.openai.com
+            // (2026-07-12): {"type": "conversation.item.delete", "item_id": "..."}.
+            send([
+                "type": "conversation.item.delete",
+                "item_id": oldest,
+            ])
+        }
     }
 
     func pushEvent(_ json: String) async {
@@ -90,8 +129,89 @@ final class RealtimeSession: NSObject, TutorSession {
         ])
     }
 
+    // MARK: - Push-to-talk mic control
+    //
+    // Server VAD is disabled once, right after the data channel opens (see
+    // `dataChannelDidChangeState`), and stays off — the client owns
+    // turn-taking entirely via hold/release. (2026-07-12, simplified: cut
+    // the double-tap open-mic mode and semantic_vad — demo interaction is
+    // hold-only, no VAD mode-switching at all.) Event shapes verified
+    // against developers.openai.com/api/docs (2026-07-12): session.update's
+    // turn_detection lives at `session.audio.input.turn_detection` (mirrors
+    // the worker's existing `session.audio.output.voice`); `null` disables
+    // it entirely. input_audio_buffer.clear/commit and response.create/
+    // cancel take no fields beyond `type`. output_audio_buffer.clear is
+    // WebRTC/SIP-specific (no WebSocket equivalent — that transport uses
+    // conversation.item.truncate instead) and is needed alongside
+    // response.cancel to actually stop audio that's already buffered for
+    // playback — that's the barge-in mechanism below: holding while the
+    // tutor is speaking cancels its response before taking the mic.
+
+    func startTalking() async {
+        guard let localAudioTrack else { return }
+        if isSpeaking { cancelResponse() } // barge-in: holding while it talks interrupts it
+        send(["type": "input_audio_buffer.clear"])
+        localAudioTrack.isEnabled = true
+        TutorLog.shared.lifecycle("push-to-talk: hold start")
+    }
+
+    func stopTalking() async {
+        guard let localAudioTrack else { return }
+        localAudioTrack.isEnabled = false
+        send(["type": "input_audio_buffer.commit"])
+        send(["type": "response.create"])
+        TutorLog.shared.lifecycle("push-to-talk: hold end -> commit + respond")
+    }
+
+    /// Sent once, right after connect: server VAD off, full stop. No
+    /// mode-switching after this — hold/release owns turn-taking for the
+    /// life of the session.
+    private func disableServerVAD() -> [String: Any] {
+        [
+            "type": "session.update",
+            "session": [
+                "type": "realtime",
+                "audio": [
+                    "input": [
+                        "turn_detection": NSNull(),
+                    ],
+                ],
+            ],
+        ]
+    }
+
+    /// Sent once, right after connect: filters the input audio *before* it
+    /// reaches VAD/the model, cutting false VAD triggers from room noise —
+    /// same underlying complaint as the server_vad-vs-semantic_vad switch
+    /// above, addressed at the signal level instead of the turn-detection
+    /// level. `near_field` fits an iPad's built-in mic at arm's length
+    /// better than `far_field` (meant for conference-room-style distant
+    /// mics). Field shape verified against developers.openai.com/api/
+    /// reference (RealtimeAudioConfigInput, session.audio.input.noise_
+    /// reduction) on 2026-07-12 — the realtime-vad guide itself doesn't
+    /// cover this field, only the reference schema does.
+    private func noiseReductionUpdate() -> [String: Any] {
+        [
+            "type": "session.update",
+            "session": [
+                "type": "realtime",
+                "audio": [
+                    "input": [
+                        "noise_reduction": ["type": "near_field"],
+                    ],
+                ],
+            ],
+        ]
+    }
+
+    private func cancelResponse() {
+        send(["type": "response.cancel"])
+        send(["type": "output_audio_buffer.clear"])
+    }
+
     func endSession() {
         TutorLog.shared.lifecycle("session end")
+        stopStatsTimer()
         dataChannel?.close()
         dataChannel = nil
         peerConnection?.close()
@@ -99,6 +219,9 @@ final class RealtimeSession: NSObject, TutorSession {
         localAudioTrack = nil
         transcriptContinuation?.finish()
         transcriptContinuation = nil
+        audioLevelContinuation?.finish()
+        audioLevelContinuation = nil
+        pushedImageItemIDs.removeAll()
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 
@@ -119,6 +242,10 @@ final class RealtimeSession: NSObject, TutorSession {
     private var dataChannel: RTCDataChannel?
     private var localAudioTrack: RTCAudioTrack?
     private var transcriptContinuation: AsyncStream<String>.Continuation?
+    private var audioLevelContinuation: AsyncStream<Float>.Continuation?
+    private var statsTimer: Timer?
+    private var pushedImageItemIDs: [String] = []
+    private var imageItemCounter = 0
 
     /// One long-lived URLSession for the REST calls (Global Constraint —
     /// Clicky's socket-corruption warning against creating a fresh session
@@ -207,7 +334,11 @@ final class RealtimeSession: NSObject, TutorSession {
     private func makeLocalAudioTrack() throws -> RTCAudioTrack {
         let constraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
         let audioSource = Self.factory.audioSource(with: constraints)
-        return Self.factory.audioTrack(with: audioSource, trackId: "inktutor-mic-track")
+        let track = Self.factory.audioTrack(with: audioSource, trackId: "inktutor-mic-track")
+        // Push-to-talk default: muted until a hold enables it — see
+        // `startTalking`/`stopTalking`.
+        track.isEnabled = false
+        return track
     }
 
     private func createOffer(on pc: RTCPeerConnection) async throws -> RTCSessionDescription {
@@ -252,17 +383,67 @@ final class RealtimeSession: NSObject, TutorSession {
 
     // MARK: - Sending over the data channel
 
-    private func send(_ event: [String: Any]) {
+    @discardableResult
+    private func send(_ event: [String: Any]) -> Bool {
         let type = event["type"] as? String ?? "?"
         guard let dataChannel, dataChannel.readyState == .open else {
             let message = "data channel not open, dropping event \(type)"
             print("⚠️ RealtimeSession: \(message)")
             TutorLog.shared.error(message)
-            return
+            return false
         }
-        guard let payload = try? JSONSerialization.data(withJSONObject: event) else { return }
+        guard let payload = try? JSONSerialization.data(withJSONObject: event) else { return false }
         TutorLog.shared.sent(type: type, byteCount: payload.count)
         dataChannel.sendData(RTCDataBuffer(data: payload, isBinary: false))
+        return true
+    }
+
+    // MARK: - Audio level metering (WebRTC v2 statistics API)
+
+    /// ~15Hz, matching the waveform's redraw cadence — polling faster just
+    /// burns CPU on JSON-free but still nontrivial stats-collection work.
+    private static let statsPollInterval: TimeInterval = 1.0 / 15.0
+
+    private func startStatsTimer() {
+        stopStatsTimer()
+        let timer = Timer(timeInterval: Self.statsPollInterval, repeats: true) { [weak self] _ in
+            self?.pollAudioLevel()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        statsTimer = timer
+    }
+
+    private func stopStatsTimer() {
+        statsTimer?.invalidate()
+        statsTimer = nil
+    }
+
+    /// Reads `RTCStatistics` entries off the v2 stats API: the local mic's
+    /// level lives on the "media-source" (kind "audio") entry, the tutor's
+    /// spoken audio on the "inbound-rtp" (kind "audio") entry — both carry
+    /// an `audioLevel` value in `values`, 0...1 linear, per the WebRTC/W3C
+    /// stats spec (confirmed against stasel/WebRTC's RTCStatisticsReport.h,
+    /// which defines `RTCStatistics.type`/`.values` as the generic
+    /// String-keyed carrier for these spec-defined dictionaries — the
+    /// binary xcframework has no per-field header, so "media-source" /
+    /// "inbound-rtp" / "audioLevel" are cross-checked against
+    /// w3.org/TR/webrtc-stats instead, 2026-07-12).
+    private func pollAudioLevel() {
+        guard let peerConnection else { return }
+        peerConnection.statistics { [weak self] report in
+            guard let self else { return }
+            var micLevel: Float = 0
+            var remoteLevel: Float = 0
+            for stat in report.statistics.values {
+                guard let level = (stat.values["audioLevel"] as? NSNumber)?.floatValue else { continue }
+                switch stat.type {
+                case "media-source": micLevel = max(micLevel, level)
+                case "inbound-rtp": remoteLevel = max(remoteLevel, level)
+                default: break
+                }
+            }
+            self.audioLevelContinuation?.yield(max(micLevel, remoteLevel))
+        }
     }
 
     // MARK: - Data channel event parsing
@@ -312,9 +493,18 @@ extension RealtimeSession: RTCPeerConnectionDelegate {
 extension RealtimeSession: RTCDataChannelDelegate {
     func dataChannelDidChangeState(_ dataChannel: RTCDataChannel) {
         switch dataChannel.readyState {
-        case .open: TutorLog.shared.lifecycle("data channel open")
+        case .open:
+            TutorLog.shared.lifecycle("data channel open")
+            startStatsTimer()
+            // Push-to-talk default: server VAD off, client owns
+            // turn-taking, right as the channel becomes usable. Plus
+            // near-field input noise reduction.
+            send(disableServerVAD())
+            send(noiseReductionUpdate())
         case .closing: TutorLog.shared.lifecycle("data channel closing")
-        case .closed: TutorLog.shared.lifecycle("data channel closed")
+        case .closed:
+            TutorLog.shared.lifecycle("data channel closed")
+            stopStatsTimer()
         case .connecting: break
         @unknown default: break
         }

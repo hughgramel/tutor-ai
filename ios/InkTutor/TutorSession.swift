@@ -10,5 +10,30 @@ protocol TutorSession: AnyObject {
     func pushEvent(_ json: String) async          // journal events as text items
     var transcriptDeltas: AsyncStream<String> { get }   // feeds subtitles + TagParser
     var isSpeaking: Bool { get }
+    /// Live mic/tutor audio level, 0...1, emitted ~15Hz while connected —
+    /// drives the voice bar's waveform. `max(micLevel, remoteLevel)` so
+    /// either party talking moves the bars.
+    var audioLevel: AsyncStream<Float> { get }
+    /// True once the data channel is open — gates snapshot pushes so no
+    /// render/debounce work happens while there's nowhere to send it.
+    var isConnected: Bool { get }
+
+    // MARK: - Push-to-talk mic control (Hugh, first device run, 2026-07-12:
+    // server VAD's open mic was auto-responding to ambient noise). Server
+    // VAD is disabled once, right after connect (`turn_detection: null`),
+    // and stays off — the client owns turn-taking entirely via hold/release.
+    // (2026-07-12, simplified: cut the double-tap open-mic mode and all
+    // VAD mode-switching. Hold-to-talk only; holding while the tutor is
+    // speaking is itself the barge-in.)
+
+    /// Hold begins: if the tutor is speaking, cancel its response first
+    /// (barge-in), then clear the input buffer and un-mute the mic.
+    func startTalking() async
+    /// Hold ends: mute the mic, then commit the input buffer and trigger
+    /// a response.
+    func stopTalking() async
+
+    /// Ends the session outright (the ✕ button, always — no interrupt-only
+    /// role anymore since holding covers interruption).
     func endSession()
 }

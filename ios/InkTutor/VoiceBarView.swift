@@ -1,10 +1,18 @@
 import SwiftUI
 
-/// Top-right voice chrome (Hugh, 2026-07-12): idle glass box with a mic/
-/// sparkle icon + label -> tap connects the realtime session and the box
-/// collapses into a compact waveform pill you talk to -> tap again ends the
-/// session and it expands back to idle. A subtitle box streams the tutor's
-/// words under the pill while connected.
+/// Top-right voice chrome. Tap the idle "Ask AI" box to connect (server VAD
+/// off — push-to-talk, for the life of the session). The box collapses into
+/// a waveform pill: **hold** it to talk, release to commit + get a
+/// response. Holding while the tutor is speaking is itself the barge-in —
+/// it cancels the in-flight response before taking the mic, so there's no
+/// separate interrupt gesture. The **✕** beside the pill always just ends
+/// the session and collapses back to idle. (Hugh, first device run,
+/// 2026-07-12: the old tap-to-toggle + always-on server VAD picked up
+/// ambient noise and kept auto-responding — push-to-talk replaces that.
+/// 2026-07-12, simplified again: cut the double-tap open-mic/continuous-
+/// listening mode and all VAD mode-switching — demo interaction is
+/// hold-only.) A subtitle box streams the tutor's words above the pill
+/// while connected.
 ///
 /// Native Liquid Glass (`.glassEffect()`) where the iOS 26 SDK is available;
 /// falls back to `.ultraThinMaterial` on the iOS 17 deployment target this
@@ -18,10 +26,17 @@ struct VoiceBarView: View {
     @State private var currentLine: String = ""
     @Namespace private var glassNamespace
 
-    /// Fake amplitude bars while connected — real metering is a later pass.
-    /// ponytail: driven by a timer, not the actual mic/output signal.
-    @State private var barLevels: [CGFloat] = [0.3, 0.5, 0.3, 0.5, 0.3]
-    @State private var waveformTimer: Timer?
+    /// Real amplitude bars, driven by `session.audioLevel` (2026-07-12
+    /// upgrade — replaces the earlier timer-driven fake waveform). A fixed-
+    /// size ring buffer of recent smoothed levels; new samples push in on
+    /// the trailing edge so the bars read as a scrolling waveform.
+    private static let barCount = 11
+    @State private var barLevels: [CGFloat] = Array(repeating: Self.idleBarLevel, count: Self.barCount)
+    @State private var smoothedLevel: CGFloat = Self.idleBarLevel
+    private static let idleBarLevel: CGFloat = 0.08
+
+    /// Whether the pill is currently being held (mic live).
+    @State private var isHolding = false
 
     private var isConnected: Bool { connection == .live || connection == .connecting }
 
@@ -35,7 +50,6 @@ struct VoiceBarView: View {
             morphingChrome
         }
         .animation(.spring(response: 0.35, dampingFraction: 0.8), value: connection)
-        .onChange(of: session.isSpeaking) { _, _ in } // keeps the pill re-evaluating amplitude while live
     }
 
     // MARK: - Morph container
@@ -52,7 +66,10 @@ struct VoiceBarView: View {
             case .idle, .error:
                 idleBox
             case .connecting, .live:
-                waveformPill
+                HStack(spacing: 8) {
+                    waveformPill
+                    closeButton
+                }
             }
         }
 
@@ -68,11 +85,11 @@ struct VoiceBarView: View {
     // MARK: - Idle state
 
     private var idleBox: some View {
-        Button(action: handleTap) {
+        Button(action: connect) {
             HStack(spacing: 8) {
                 Image(systemName: "sparkles")
                     .font(.system(size: 16, weight: .semibold))
-                Text("Ask your tutor")
+                Text("Ask AI")
                     .font(.system(size: 15, weight: .medium))
             }
             .foregroundStyle(connection == .error ? .red : .primary)
@@ -86,32 +103,55 @@ struct VoiceBarView: View {
 
     // MARK: - Waveform pill
 
+    /// No `Button` here — `onLongPressGesture(minimumDuration: 0.01, ...)`
+    /// is used purely for its `onPressingChanged` press-down/press-up
+    /// edges, which map directly onto hold-to-talk start/stop.
     private var waveformPill: some View {
-        Button(action: handleTap) {
-            HStack(spacing: 4) {
-                ForEach(0..<barLevels.count, id: \.self) { i in
-                    Capsule()
-                        .fill(.primary.opacity(0.75))
-                        .frame(width: 3, height: 16 * barLevels[i])
-                }
+        HStack(spacing: 3) {
+            ForEach(Array(barLevels.enumerated()), id: \.offset) { _, level in
+                Capsule()
+                    .fill(.primary.opacity(0.8))
+                    .frame(width: 2.5, height: barHeight(for: level))
             }
-            .frame(width: 56, height: 32)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
         }
-        .buttonStyle(.plain)
+        .frame(width: 56, height: 32)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .contentShape(Rectangle())
         .glassBackground(cornerRadius: 22)
         .voiceGlassID(in: glassNamespace)
         .opacity(connection == .connecting ? 0.55 : 1.0)
-        .scaleEffect(connection == .connecting ? 0.97 : 1.0)
+        .scaleEffect(isHolding ? 1.04 : (connection == .connecting ? 0.97 : 1.0))
         .animation(
             connection == .connecting
                 ? .easeInOut(duration: 0.8).repeatForever(autoreverses: true)
-                : .default,
+                : .spring(response: 0.25, dampingFraction: 0.7),
             value: connection
         )
-        .onAppear(perform: startWaveformTimer)
-        .onDisappear(perform: stopWaveformTimer)
+        .animation(.spring(response: 0.25, dampingFraction: 0.7), value: isHolding)
+        .animation(.easeOut(duration: 0.08), value: barLevels)
+        .onAppear(perform: resetWaveform)
+        .onLongPressGesture(minimumDuration: 0.01, maximumDistance: 60, perform: {}, onPressingChanged: handlePress)
+    }
+
+    // MARK: - Close button
+
+    private var closeButton: some View {
+        Button(action: handleClose) {
+            Image(systemName: "xmark")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.primary)
+                .frame(width: 32, height: 32)
+        }
+        .buttonStyle(.plain)
+        .glassBackground(cornerRadius: 16)
+    }
+
+    private func barHeight(for level: CGFloat) -> CGFloat {
+        let minHeight: CGFloat = 4
+        let maxHeight: CGFloat = 20
+        let clamped = min(max(level, 0), 1)
+        return minHeight + clamped * (maxHeight - minHeight)
     }
 
     // MARK: - Subtitles
@@ -140,25 +180,20 @@ struct VoiceBarView: View {
         }
     }
 
-    // MARK: - Actions
-
-    private func handleTap() {
-        switch connection {
-        case .idle, .error:
-            connect()
-        case .connecting, .live:
-            disconnect()
-        }
-    }
+    // MARK: - Connection lifecycle
 
     private func connect() {
+        guard connection == .idle || connection == .error else { return }
         connection = .connecting
         subtitleLines = []
         currentLine = ""
+        resetWaveform()
+        resetGestureState()
         Task {
             do {
                 try await session.connect()
                 await MainActor.run { connection = .live }
+                Task { await streamAudioLevels() }
                 await streamTranscript()
             } catch {
                 await MainActor.run {
@@ -175,7 +210,50 @@ struct VoiceBarView: View {
     private func disconnect() {
         session.endSession()
         connection = .idle
-        stopWaveformTimer()
+        resetWaveform()
+        resetGestureState()
+    }
+
+    private func resetGestureState() {
+        isHolding = false
+    }
+
+    // MARK: - Pill gesture: hold-to-talk
+
+    /// Fires on every press-down and press-up of the pill. Press-down
+    /// starts a hold, press-up ends it — no tap-length classification, no
+    /// double-tap. Barge-in (interrupting a speaking tutor) is just
+    /// holding while it talks; `RealtimeSession.startTalking` handles that.
+    private func handlePress(_ pressing: Bool) {
+        guard connection == .live else { return }
+        if pressing {
+            beginHold()
+        } else {
+            endHold()
+        }
+    }
+
+    private func beginHold() {
+        guard !isHolding else { return }
+        isHolding = true
+        Task { await session.startTalking() }
+    }
+
+    private func endHold() {
+        guard isHolding else { return }
+        isHolding = false
+        Task { await session.stopTalking() }
+    }
+
+    /// The ✕: always ends the session outright (holding already covers
+    /// interruption, so there's no separate interrupt-vs-end branch).
+    private func handleClose() {
+        switch connection {
+        case .idle, .error:
+            break
+        case .connecting, .live:
+            disconnect()
+        }
     }
 
     private func streamTranscript() async {
@@ -200,23 +278,36 @@ struct VoiceBarView: View {
         }
     }
 
-    // MARK: - Fake waveform
+    // MARK: - Waveform (real audio levels)
 
-    private func startWaveformTimer() {
-        stopWaveformTimer()
-        waveformTimer = Timer.scheduledTimer(withTimeInterval: 0.12, repeats: true) { _ in
-            Task { @MainActor in
-                let active = session.isSpeaking
-                barLevels = barLevels.map { _ in
-                    active ? CGFloat.random(in: 0.3...1.0) : CGFloat.random(in: 0.15...0.4)
-                }
+    /// Consumes `session.audioLevel` for the life of one connection; the
+    /// stream finishes on `endSession()`, so this loop just ends on its own
+    /// when the session goes away.
+    private func streamAudioLevels() async {
+        for await level in session.audioLevel {
+            await MainActor.run {
+                pushLevel(CGFloat(level))
             }
         }
     }
 
-    private func stopWaveformTimer() {
-        waveformTimer?.invalidate()
-        waveformTimer = nil
+    /// Attack/decay easing so individual samples don't make the bars
+    /// flicker: rises fast toward a louder sample, falls back slowly —
+    /// same shape as a VU meter. Each eased sample pushes into the ring
+    /// buffer, oldest falls off, so the bars scroll like a waveform.
+    private static let attack: CGFloat = 0.5
+    private static let decay: CGFloat = 0.15
+
+    private func pushLevel(_ target: CGFloat) {
+        let rate = target > smoothedLevel ? Self.attack : Self.decay
+        smoothedLevel += (target - smoothedLevel) * rate
+        barLevels.removeFirst()
+        barLevels.append(smoothedLevel)
+    }
+
+    private func resetWaveform() {
+        smoothedLevel = Self.idleBarLevel
+        barLevels = Array(repeating: Self.idleBarLevel, count: Self.barCount)
     }
 }
 
@@ -274,9 +365,13 @@ private extension View {
 
 private final class PreviewTutorSession: TutorSession {
     var isSpeaking: Bool = false
+    var isConnected: Bool = false
     var transcriptDeltas: AsyncStream<String> { AsyncStream { _ in } }
+    var audioLevel: AsyncStream<Float> { AsyncStream { _ in } }
     func connect() async throws {}
     func pushImage(_ jpeg: Data) async {}
     func pushEvent(_ json: String) async {}
+    func startTalking() async {}
+    func stopTalking() async {}
     func endSession() {}
 }
