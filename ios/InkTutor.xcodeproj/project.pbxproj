@@ -7,14 +7,27 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		433E67C39E7330CA330EE7BA /* PlaceholderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 657295A3C4B7C4D0ED19F627 /* PlaceholderTests.swift */; };
 		C3F4AA3418C6E95AB58D2D6B /* CanvasView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81A1161D5201C918F39AABDC /* CanvasView.swift */; };
 		CD07A64BF354BE16EE9A9FAB /* InkTutorApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 173B6CA5575873348E765E1E /* InkTutorApp.swift */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		29453C9318F71EC920C7D1C7 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 38F184FC177180796963A9F2 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 600CD734224C6A9799006E54;
+			remoteInfo = InkTutor;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
 		173B6CA5575873348E765E1E /* InkTutorApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InkTutorApp.swift; sourceTree = "<group>"; };
+		657295A3C4B7C4D0ED19F627 /* PlaceholderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaceholderTests.swift; sourceTree = "<group>"; };
 		81A1161D5201C918F39AABDC /* CanvasView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanvasView.swift; sourceTree = "<group>"; };
-		BA868DA7B0C07E34149845E2 /* InkTutor.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = InkTutor.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		BA868DA7B0C07E34149845E2 /* InkTutor.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = InkTutor.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		F7B5C3F12C01BFE47F2C00E9 /* InkTutorTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = InkTutorTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -27,10 +40,19 @@
 			path = InkTutor;
 			sourceTree = "<group>";
 		};
+		7E1F7DACB550647FB7386C27 /* InkTutorTests */ = {
+			isa = PBXGroup;
+			children = (
+				657295A3C4B7C4D0ED19F627 /* PlaceholderTests.swift */,
+			);
+			path = InkTutorTests;
+			sourceTree = "<group>";
+		};
 		950474E076187D3E4665C432 = {
 			isa = PBXGroup;
 			children = (
 				69050CA608CB87B43A3480F2 /* InkTutor */,
+				7E1F7DACB550647FB7386C27 /* InkTutorTests */,
 				FA0B4F9C06BA12D858587F07 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -39,6 +61,7 @@
 			isa = PBXGroup;
 			children = (
 				BA868DA7B0C07E34149845E2 /* InkTutor.app */,
+				F7B5C3F12C01BFE47F2C00E9 /* InkTutorTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -62,6 +85,24 @@
 			productName = InkTutor;
 			productReference = BA868DA7B0C07E34149845E2 /* InkTutor.app */;
 			productType = "com.apple.product-type.application";
+		};
+		A176DBBE238375384677B44A /* InkTutorTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 0A8948C99088ABE4B304E5AF /* Build configuration list for PBXNativeTarget "InkTutorTests" */;
+			buildPhases = (
+				714A272C286EBFEA59743FBD /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				3443A9200F9EFEA55C280E8D /* PBXTargetDependency */,
+			);
+			name = InkTutorTests;
+			packageProductDependencies = (
+			);
+			productName = InkTutorTests;
+			productReference = F7B5C3F12C01BFE47F2C00E9 /* InkTutorTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
 		};
 /* End PBXNativeTarget section */
 
@@ -92,11 +133,20 @@
 			projectRoot = "";
 			targets = (
 				600CD734224C6A9799006E54 /* InkTutor */,
+				A176DBBE238375384677B44A /* InkTutorTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXSourcesBuildPhase section */
+		714A272C286EBFEA59743FBD /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				433E67C39E7330CA330EE7BA /* PlaceholderTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		C7CF2D181550F753E366FB80 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -108,7 +158,31 @@
 		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		3443A9200F9EFEA55C280E8D /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 600CD734224C6A9799006E54 /* InkTutor */;
+			targetProxy = 29453C9318F71EC920C7D1C7 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
+		0225533DD195E499EEA6C69F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.tutorai.InkTutorTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/InkTutor.app/InkTutor";
+			};
+			name = Debug;
+		};
 		166072EE987C37123B1996A1 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -171,9 +245,10 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = JWT3RYQ292;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "InkTutor uses the microphone so you can talk to your tutor.";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UIUserInterfaceStyle = Light;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -184,15 +259,32 @@
 			};
 			name = Release;
 		};
+		528743CC94339F3D15D72A10 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.tutorai.InkTutorTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/InkTutor.app/InkTutor";
+			};
+			name = Release;
+		};
 		6B713FC17381C36502FC8E7C /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = JWT3RYQ292;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "InkTutor uses the microphone so you can talk to your tutor.";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UIUserInterfaceStyle = Light;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -274,6 +366,15 @@
 			buildConfigurations = (
 				D845393F24C49FAF730B55D6 /* Debug */,
 				166072EE987C37123B1996A1 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		0A8948C99088ABE4B304E5AF /* Build configuration list for PBXNativeTarget "InkTutorTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0225533DD195E499EEA6C69F /* Debug */,
+				528743CC94339F3D15D72A10 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;

@@ -14,5 +14,19 @@ targets:
         TARGETED_DEVICE_FAMILY: 2   # iPad only
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        INFOPLIST_KEY_UIUserInterfaceStyle: Light   # app is light-mode only (white paper), demo lock
+        INFOPLIST_KEY_NSMicrophoneUsageDescription: "InkTutor uses the microphone so you can talk to your tutor."
         # ponytail: signing left blank — set your Team in Xcode > Signing & Capabilities before running on device
         CODE_SIGN_STYLE: Automatic
+  InkTutorTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [InkTutorTests]
+    dependencies:
+      - target: InkTutor
+schemes:
+  InkTutor:
+    build:
+      targets: {InkTutor: all}
+    test:
+      targets: [InkTutorTests]

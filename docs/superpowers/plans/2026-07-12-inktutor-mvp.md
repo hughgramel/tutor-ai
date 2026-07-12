@@ -102,14 +102,16 @@ git add worker && git commit -m "feat: worker mints realtime tokens"
 
 ### Task 2: Grounding harness (decides D2 + representation)
 
+**DECISION (2026-07-12): one brain, `gpt-realtime`, no Claude.** We drop the Claude/gpt-5.2 vision bakeoff — grabbing Claude wouldn't fix the scary failure (over-correction is model-general; strong models do it *more*). Harness is realtime-only. If realtime vision flunks the gate, the hedge is **deterministic error-finding** (mark registry + symbolic check flags the wrong line; model only *talks about* the pre-flagged line, so it can't over-correct), **not** a second vision model.
+
 **Files:**
-- Create: `tools/harness/generate_pages.py`, `tools/harness/run_eval.py`, `tools/harness/requirements.txt` (`pillow`, `openai`, `anthropic`)
+- Create: `tools/harness/generate_pages.py` ✅ built, `tools/harness/run_eval.py`, `tools/harness/requirements.txt` (`pillow`, `websocket-client`)
 
 **Interfaces:**
-- Consumes: MathWriting excerpt (`storage.googleapis.com/mathwriting_data/` sample) for realistic strokes.
-- Produces: `results.json` with per-config `mark_accuracy`, `overcorrection_rate`, `latency_p50` → thresholds below decide D2 and whether the JSON sidecar ships.
+- Consumes: nothing external — synthetic pages rendered from a macOS handwriting font (`Bradley Hand`), jittered. No MathWriting download; we control ground truth exactly.
+- Produces: `results.json` with per-config `mark_accuracy`, `overcorrection_rate`, `latency_p50` → thresholds below decide the deterministic-error-finding hedge and whether marks help localization.
 
-- [ ] **Step 1: Page generator** — renders known stroke sequences (MathWriting InkML polylines, jittered) onto a 1280×960 white image, 4–6 algebra lines, one line deliberately wrong (e.g. `-6x` becomes `+6x`), burns red mark labels `1..N` beside each line bbox, writes ground truth JSON `{marks:[{id,bbox,latex}], wrong_mark: 3}` per page. 15 pages: 5 clean, 5 messy (heavy jitter), 3 with a fraction, 2 dense (15+ marks).
+- [x] **Step 1: Page generator (`generate_pages.py`) — BUILT.** Renders short algebra derivations in `Bradley Hand` + per-char position/size jitter onto a 1280-wide white image, one line deliberately wrong, red mark labels `1..N` down the left margin, writes ground truth `{marks:[{id,bbox,text,wrong}], wrong_mark}` per page. 8 pages (4 derivations × clean/messy); 2 have the error on the last line, 2 mid-derivation (so localization can't just pick the weird final line). Combines all into `worksheet.pdf` ("our own PDF"). Bump `DERIVATIONS` for a bigger run. `# ponytail: font+jitter, not real ink — enough to trigger over-correction; upgrade to InkML only if the read is unrealistically easy.`
 
 ```python
 # generate_pages.py (core of it)
@@ -144,7 +146,7 @@ def make_page(lines, jitter, out_png, out_json):
 
 (`draw_line_and_measure` = `draw_line` + min/max over the jittered points; write it in the same file.)
 
-- [ ] **Step 2: Eval runner** — for each page × config (`image_only`, `image_marks`, `image_marks_json`) × model (`gpt-5.2` chat-vision as proxy + `gpt-realtime-2.1` over the WebSocket transport), ask two questions: (a) "transcribe each numbered line exactly as written, preserving any errors" (b) "which mark number contains the mathematical mistake? Answer with just the number." Score: transcription of the wrong line must contain the error (else it over-corrected); mark answer must equal `wrong_mark`.
+- [ ] **Step 2: Eval runner (`run_eval.py`)** — drives **`gpt-realtime` over the WebSocket transport only** (no chat proxy, no Claude). For each page × config (`image_only`, `image_marks`), push the image (+ mark-registry text for `image_marks`) as a `conversation.item.create`, trigger a text `response.create`, and ask two questions: (a) "transcribe each numbered line exactly as written, preserving any errors" (b) "which mark number contains the mathematical mistake? Answer with just the number." Score: transcription of the wrong line must contain the written (wrong) value → else it over-corrected; mark answer must equal `wrong_mark`. **Verify exact realtime WS event names against current OpenAI docs during build — do not trust this plan's memory of them.**
 
 - [ ] **Step 3: Run**
 
