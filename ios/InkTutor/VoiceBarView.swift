@@ -77,7 +77,9 @@ struct VoiceBarView: View {
     private var isConnected: Bool { connection == .live || connection == .connecting }
 
     private var pillCaption: String? {
-        if connection == .connecting { return "connecting — keep holding" }
+        // Only surface "connecting" when the user is actively pressing —
+        // the launch auto-connect happens silently in the background.
+        if connection == .connecting && pressQueuedHold { return "connecting — hold on" }
         if isHolding { return "listening" }
         if isThinking { return "…" }
         return nil
@@ -114,6 +116,12 @@ struct VoiceBarView: View {
         .animation(.spring(response: 0.35, dampingFraction: 0.8), value: isExpanded)
         .animation(.easeInOut(duration: 0.2), value: studentTranscript)
         .animation(.easeInOut(duration: 0.15), value: pillCaption)
+        // Auto-connect at launch (Hugh, 2026-07-12: the tap-to-connect step
+        // + its "keep holding" wait was pure friction — the session opens in
+        // the background while the app settles, so the first hold is
+        // instantly live). The idle "Ask AI" box remains only as the
+        // reconnect affordance after ✕ or an error.
+        .onAppear { connect() }
     }
 
     // MARK: - Morph container
@@ -252,7 +260,7 @@ struct VoiceBarView: View {
     /// way UIKit-backed Button touch-up can, and the tap is logged so a dead
     /// ✕ is diagnosable from the console instead of a mystery.
     private var closeButton: some View {
-        Image(systemName: "xmark")
+        Image(systemName: "stop.fill")
             .font(.system(size: 12, weight: .semibold))
             .foregroundStyle(.primary)
             .frame(width: 32, height: 32)
@@ -260,8 +268,8 @@ struct VoiceBarView: View {
             .frame(width: 44, height: 44)
             .contentShape(Rectangle())
             .onTapGesture {
-                TutorLog.shared.lifecycle("close (X) tapped")
-                handleClose()
+                TutorLog.shared.lifecycle("stop tapped")
+                handleStop()
             }
     }
 
@@ -508,7 +516,9 @@ struct VoiceBarView: View {
             pressQueuedHold = true
             connect() // beginHold fires from connect() once live, if still pressed
         case .connecting:
-            if !pressing { pressQueuedHold = false } // released before we got up
+            // Pressing during the (usually launch-time) connect queues the
+            // hold to begin the instant we're live; releasing abandons it.
+            pressQueuedHold = pressing
         }
     }
 
@@ -543,15 +553,16 @@ struct VoiceBarView: View {
         Task { await session.stopTalking() }
     }
 
-    /// The ✕: always ends the session outright (holding already covers
-    /// interruption, so there's no separate interrupt-vs-end branch).
-    private func handleClose() {
-        switch connection {
-        case .idle, .error:
-            break
-        case .connecting, .live:
-            disconnect()
-        }
+    /// The stop button (Hugh, 2026-07-12: was an end-session ✕) — kills the
+    /// AI's in-flight response and clears queued subtitle text; the session
+    /// itself stays connected (auto-connect world: teardown is app exit).
+    private func handleStop() {
+        guard connection == .live else { return }
+        revealTask?.cancel()
+        revealTask = nil
+        pendingSpeech = ""
+        isThinking = false
+        Task { await session.stopSpeaking() }
     }
 
     private func streamTranscript() async {
@@ -814,6 +825,7 @@ private final class PreviewTutorSession: TutorSession {
     func pushImage(_ jpeg: Data) async {}
     func pushEvent(_ json: String) async {}
     func startTalking() async {}
+    func stopSpeaking() async {}
     func stopTalking() async {}
     func endSession() {}
 }

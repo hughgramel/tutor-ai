@@ -1,11 +1,15 @@
 import SwiftUI
-import PDFKit
 import UIKit
+import PDFKit
 
 /// App entry screen: the student's worksheet canvas, full-screen, plus the
-/// tutor's popup page. Opens directly onto the canvas — no landing screen
+/// tutor's side panel. Opens directly onto the canvas — no landing screen
 /// (demo priority).
 struct CanvasScreen: View {
+    /// Fraction of screen width the tutor's side panel occupies when open
+    /// (Hugh, 2026-07-12: side panel over popup — blank canvas, both pages
+    /// visible and usable at once for the two-way pointing demo moment).
+    private static let sidePanelWidthFraction: CGFloat = 0.45
     /// Page size in canvas points, origin top-left (Global Constraints).
     static let pageSize = CGSize(width: 768, height: 1024)
 
@@ -37,41 +41,49 @@ struct CanvasScreen: View {
     @State private var coordinator: TutorCoordinator?
 
     var body: some View {
-        ZStack {
-            PageCanvasRepresentable(
-                page: studentPage,
-                pageSize: Self.pageSize,
-                session: session,
-                tutorCoordinator: coordinator,
-                onOverlayReady: { performer.studentOverlay = $0 }
-            )
-            .ignoresSafeArea()
+        GeometryReader { geo in
+            HStack(spacing: 0) {
+                ZStack {
+                    PageCanvasRepresentable(
+                        page: studentPage,
+                        pageSize: Self.pageSize,
+                        session: session,
+                        tutorCoordinator: coordinator,
+                        onOverlayReady: { performer.studentOverlay = $0 }
+                    )
+                    .ignoresSafeArea()
 
-            VStack {
-                HStack {
-                    Spacer()
-                    if let coordinator {
-                        VoiceBarView(session: session, coordinator: coordinator)
+                    VStack {
+                        HStack {
+                            Spacer()
+                            if let coordinator {
+                                VoiceBarView(session: session, coordinator: coordinator)
+                            }
+                        }
+                        Spacer()
                     }
+                    .padding()
                 }
-                Spacer()
-            }
-            .padding()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            // (Example button removed — the tutor popup opens via [NEWPAGE]
-            // once the coordinator is wired; showTutorPage stays for that.)
+                // (Example button removed — the tutor panel opens via [NEWPAGE]
+                // once the coordinator is wired; showTutorPage stays for that.)
 
-            if showTutorPage, let coordinator {
-                TutorPagePopup(
-                    page: tutorPage,
-                    pageSize: Self.pageSize,
-                    isPresented: $showTutorPage,
-                    coordinator: coordinator,
-                    onOverlayReady: { performer.tutorOverlay = $0 },
-                    onWriterReady: { writeRouter.attach(writer: $0) }
-                )
+                if showTutorPage, let coordinator {
+                    TutorSidePanel(
+                        page: tutorPage,
+                        pageSize: Self.pageSize,
+                        isPresented: $showTutorPage,
+                        coordinator: coordinator,
+                        onOverlayReady: { performer.tutorOverlay = $0 },
+                        onWriterReady: { writeRouter.attach(writer: $0) }
+                    )
+                    .frame(width: geo.size.width * Self.sidePanelWidthFraction, height: geo.size.height)
+                    .transition(.move(edge: .trailing))
+                }
             }
         }
+        .animation(.spring(response: 0.4, dampingFraction: 0.85), value: showTutorPage)
         // PDF underlay disabled for now (Hugh, 2026-07-12): blank canvas, tutor
         // reads the ink alone. Re-enable by restoring this call.
         // .onAppear(perform: loadAssignmentPDF)
@@ -110,60 +122,73 @@ struct CanvasScreen: View {
     }
 }
 
-/// The tutor's page as a popup card over a dimmed scrim (Hugh, 2026-07-13:
-/// don't take the student away from their work). Closeable anytime; the
-/// PageModel survives dismissal so reopening restores the drawing.
-private struct TutorPagePopup: View {
+/// The tutor's page as a side panel docked to the trailing edge (Hugh,
+/// 2026-07-12: "forget the popup — since we're doing a blank canvas let's
+/// have it on the side"). No scrim — the student's canvas stays live and
+/// interactive in the remaining width alongside this panel, so both pages
+/// are visible and usable at once (the two-way pointing demo moment).
+/// Closeable anytime; the PageModel survives dismissal so reopening
+/// restores the drawing.
+private struct TutorSidePanel: View {
     @ObservedObject var page: PageModel
     let pageSize: CGSize
     @Binding var isPresented: Bool
     /// Wiring Step 6: both dismiss paths below tell the coordinator the
-    /// popup closed, so `dispatchWrite`'s open-if-needed check stays
+    /// panel closed, so `dispatchWrite`'s open-if-needed check stays
     /// accurate (the coordinator can't observe `@State showTutorPage`
     /// directly).
     let coordinator: TutorCoordinator
     var onOverlayReady: ((AnnotationOverlayView) -> Void)? = nil
     var onWriterReady: ((TutorWriter) -> Void)? = nil
 
+    /// Width of the leading-edge grab strip that offers swipe-to-dismiss
+    /// without laying a gesture over the canvas itself (which would fight
+    /// PencilKit's own touch handling).
+    private static let grabStripWidth: CGFloat = 14
+
     var body: some View {
-        ZStack {
-            Color.black.opacity(0.35)
-                .ignoresSafeArea()
-                .onTapGesture { dismiss() }
-
-            GeometryReader { geo in
-                let cardWidth = geo.size.width * 0.85
-                let cardHeight = geo.size.height * 0.85
-
-                VStack(spacing: 0) {
-                    HStack {
-                        Spacer()
-                        Button {
-                            dismiss()
-                        } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.title2)
-                                .foregroundStyle(.secondary)
-                        }
-                        .padding(8)
-                    }
-                    .background(.white)
-
-                    PageCanvasRepresentable(
-                        page: page,
-                        pageSize: pageSize,
-                        onOverlayReady: onOverlayReady,
-                        onWriterReady: onWriterReady
-                    )
+        VStack(spacing: 0) {
+            HStack {
+                Spacer()
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.title2)
+                        .foregroundStyle(.secondary)
                 }
-                .background(.white)
-                .clipShape(RoundedRectangle(cornerRadius: 16))
-                .shadow(radius: 20)
-                .frame(width: cardWidth, height: cardHeight)
-                .position(x: geo.size.width / 2, y: geo.size.height / 2)
+                .padding(8)
             }
+            .background(.white)
+
+            PageCanvasRepresentable(
+                page: page,
+                pageSize: pageSize,
+                onOverlayReady: onOverlayReady,
+                onWriterReady: onWriterReady
+            )
         }
-        .transition(.opacity)
+        .background(.white)
+        .overlay(alignment: .leading) {
+            Rectangle()
+                .fill(Color.black.opacity(0.12))
+                .frame(width: 1)
+        }
+        .overlay(alignment: .leading) {
+            // Trivial swipe-to-dismiss win: a thin strip on the panel's own
+            // leading edge, not over the canvas, so it can't steal drawing
+            // touches.
+            Color.clear
+                .frame(width: Self.grabStripWidth)
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 12)
+                        .onEnded { value in
+                            if value.translation.width > 40 { dismiss() }
+                        }
+                )
+        }
+        .shadow(color: .black.opacity(0.2), radius: 12, x: -4, y: 0)
     }
 
     private func dismiss() {

@@ -298,6 +298,11 @@ final class RealtimeSession: NSObject, TutorSession {
         ]
     }
 
+    func stopSpeaking() async {
+        cancelResponse()
+        TutorLog.shared.lifecycle("stopSpeaking: response cancelled by user")
+    }
+
     private func cancelResponse() {
         send(["type": "response.cancel"])
         send(["type": "output_audio_buffer.clear"])

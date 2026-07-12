@@ -17,6 +17,9 @@ protocol TutorSession: AnyObject {
     /// each completed turn rather than streaming word-by-word.
     var userTranscript: AsyncStream<String> { get }
     var isSpeaking: Bool { get }
+    /// Immediately stops any in-flight tutor response (speech + generation).
+    /// Session stays connected — this is the stop button, not teardown.
+    func stopSpeaking() async
     /// Live mic/tutor audio level, 0...1, emitted ~15Hz while connected —
     /// drives the voice bar's waveform. `max(micLevel, remoteLevel)` so
     /// either party talking moves the bars.
