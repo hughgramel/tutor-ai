@@ -84,20 +84,37 @@ struct VoiceBarView: View {
 
     // MARK: - Idle state
 
+    /// Idle: a static mini-waveform as the icon — the button previews the
+    /// interaction it starts — plus a soft top sheen for the glossy read.
+    private static let idleWaveHeights: [CGFloat] = [7, 13, 18, 11, 6]
+
     private var idleBox: some View {
         Button(action: connect) {
-            HStack(spacing: 8) {
-                Image(systemName: "sparkles")
-                    .font(.system(size: 16, weight: .semibold))
+            HStack(spacing: 10) {
+                HStack(spacing: 2.5) {
+                    ForEach(Array(Self.idleWaveHeights.enumerated()), id: \.offset) { _, h in
+                        Capsule()
+                            .fill(connection == .error ? Color.red : Color.primary.opacity(0.75))
+                            .frame(width: 2.5, height: h)
+                    }
+                }
                 Text("Ask AI")
-                    .font(.system(size: 15, weight: .medium))
+                    .font(.system(size: 15, weight: .semibold, design: .rounded))
             }
             .foregroundStyle(connection == .error ? .red : .primary)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
+            .padding(.horizontal, 18)
+            .padding(.vertical, 13)
         }
         .buttonStyle(.plain)
-        .glassBackground(cornerRadius: 22, tint: connection == .error ? .red.opacity(0.15) : nil)
+        .glassBackground(cornerRadius: 26, tint: connection == .error ? .red.opacity(0.15) : nil)
+        .overlay(
+            // glossy sheen: bright top edge fading out mid-capsule
+            Capsule()
+                .fill(LinearGradient(colors: [.white.opacity(0.35), .clear],
+                                     startPoint: .top, endPoint: .center))
+                .allowsHitTesting(false)
+        )
+        .clipShape(Capsule())
         .voiceGlassID(in: glassNamespace)
     }
 

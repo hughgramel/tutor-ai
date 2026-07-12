@@ -27,7 +27,7 @@ struct PageCanvasRepresentable: UIViewRepresentable {
     }
 
     func makeUIView(context: Context) -> UIView {
-        let container = UIView()
+        let container = CanvasContainerView()
         container.backgroundColor = .systemGray4 // area outside the page, off-canvas
         container.overrideUserInterfaceStyle = .light
 
@@ -75,6 +75,13 @@ struct PageCanvasRepresentable: UIViewRepresentable {
         context.coordinator.session = page.role == .student ? session : nil
         context.coordinator.syncUnderlay()
 
+        // Center the page whenever the container gets its real bounds (zero at
+        // makeUIView time) or changes size — insets keep the page mid-screen.
+        container.onLayout = { [weak coordinator = context.coordinator] in
+            coordinator?.centerContent()
+            coordinator?.syncUnderlay()
+        }
+
         return container
     }
 
@@ -90,6 +97,16 @@ struct PageCanvasRepresentable: UIViewRepresentable {
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
+
+    /// Container that reports layout passes so the page can be (re)centered
+    /// once real bounds exist.
+    final class CanvasContainerView: UIView {
+        var onLayout: (() -> Void)?
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            onLayout?()
+        }
+    }
 
     final class Coordinator: NSObject, PKCanvasViewDelegate, UIScrollViewDelegate {
         weak var page: PageModel?
@@ -158,7 +175,22 @@ struct PageCanvasRepresentable: UIViewRepresentable {
         }
 
         func scrollViewDidScroll(_ scrollView: UIScrollView) { syncUnderlay() }
-        func scrollViewDidZoom(_ scrollView: UIScrollView) { syncUnderlay() }
+        func scrollViewDidZoom(_ scrollView: UIScrollView) {
+            centerContent()
+            syncUnderlay()
+        }
+
+        /// Keeps the page centered when it's smaller than the viewport
+        /// (contentInset trick — offsets go negative, syncUnderlay's
+        /// `-offset` math shifts the paper along with the ink for free).
+        func centerContent() {
+            guard let cv = canvasView else { return }
+            let scaledW = pageSize.width * cv.zoomScale
+            let scaledH = pageSize.height * cv.zoomScale
+            let dx = max((cv.bounds.width - scaledW) / 2, 0)
+            let dy = max((cv.bounds.height - scaledH) / 2, 0)
+            cv.contentInset = UIEdgeInsets(top: dy, left: dx, bottom: dy, right: dx)
+        }
 
         func syncUnderlay() {
             guard let canvasView, let paperView else { return }

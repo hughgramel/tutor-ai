@@ -30,17 +30,8 @@ struct CanvasScreen: View {
             }
             .padding()
 
-            VStack {
-                Spacer()
-                HStack {
-                    Spacer()
-                    // TEMP: manual trigger for the tutor popup, standing in for the
-                    // [NEWPAGE] tag until the streaming tag parser (Task 8) drives it.
-                    Button("Example") { showTutorPage = true }
-                        .buttonStyle(.borderedProminent)
-                        .padding()
-                }
-            }
+            // (Example button removed — the tutor popup opens via [NEWPAGE]
+            // once the coordinator is wired; showTutorPage stays for that.)
 
             if showTutorPage {
                 TutorPagePopup(page: tutorPage, pageSize: Self.pageSize, isPresented: $showTutorPage)
