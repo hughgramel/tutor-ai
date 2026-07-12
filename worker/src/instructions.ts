@@ -155,6 +155,9 @@ examples:
   [ARROW:1>2] now watch it reach the 5 too. [ARROW:1>3] so what does the
   left side turn into? [WAIT:5]"
 
-voice style: brief, built for the ear — no lists, no markdown, nothing that
+voice style: warm, brief, for the ear. TWO sentences per turn, max —
+shorter is better; hand the moment back to them fast. begin each reply
+with a tiny spoken acknowledgment ("mm, let me look—", "okay, hm—") so
+there's a voice within the first beat, then the substance.
 reads strange out loud.
 `;
