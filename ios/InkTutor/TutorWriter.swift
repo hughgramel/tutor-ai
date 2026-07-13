@@ -583,7 +583,7 @@ final class TutorWriter: UIView {
     /// truth for the two structural constructs (`"fracbar"`, `"√"`, see
     /// `write` below) either way, and nothing about `TutorWriterLayout`
     /// changed — only which visual each placement gets.
-    static let useStrokeGlyphs = false
+    static let useStrokeGlyphs = true  // Hugh 2026-07-13: strokes ARE the handwriting; font mode kept for fallback
 
     /// Hand-writes `latex` starting at `origin` (page space, top-left),
     /// scaled so the whole equation is `height` points tall. Glyphs animate
@@ -702,17 +702,50 @@ final class TutorWriter: UIView {
     /// already awaits between glyphs.
     private func writeFallback(character: String, frame: CGRect, on container: CALayer) {
         let baselineWobble = CGFloat.random(in: -1.5...1.5)
-        let wobbledFrame = frame.offsetBy(dx: 0, dy: baselineWobble)
+        var wobbledFrame = frame.offsetBy(dx: 0, dy: baselineWobble)
+
+        // SwiftMath gives punctuation like "." a near-zero-height frame
+        // (a period's own ink is tiny in any real font's metrics too) —
+        // rendered at that literal height in a text layer, it's essentially
+        // invisible (confirmed by eye: "x=3.5"'s decimal point vanished
+        // against the width-3 pen ink at both Chalkboard weights). Floor
+        // the render size so a period still reads as a mark, growing the
+        // frame symmetrically around its own center so its position doesn't
+        // shift — every other glyph's frame is already well above this
+        // floor, so this is a no-op for them.
+        let minimumRenderDimension: CGFloat = 12
+        if wobbledFrame.height < minimumRenderDimension {
+            wobbledFrame = wobbledFrame.insetBy(dx: -(minimumRenderDimension - wobbledFrame.height) / 2, dy: -(minimumRenderDimension - wobbledFrame.height) / 2)
+        }
 
         let textLayer = CATextLayer()
         textLayer.string = character
-        textLayer.frame = wobbledFrame
-        let font = Self.textFont(for: character, size: wobbledFrame.height)
+        // Two sizing bugs fixed by eye (2026-07-13):
+        // 1. CATextLayer hard-clips to bounds, and a glyph at point size N
+        //    needs its full line box (~1.35×N) — sizing the layer to the
+        //    tight SwiftMath frame cut the bottom off every glyph.
+        // 2. fontSize = frame.height double-shrinks: SwiftMath's frame for
+        //    "x" is already x-height-sized, and the font then renders "x"
+        //    at HALF that again ("x"/"=" microscopic next to digits). The
+        //    fix: measure the font's actual INK box for this character and
+        //    pick the point size whose ink height fills the frame, then
+        //    place the baseline so the ink lands exactly in the frame.
+        let (fontSize, inkTopAboveBaseline) = Self.inkFittedFontSize(
+            for: character, targetInkHeight: wobbledFrame.height)
+        let font = Self.textFont(for: character, size: fontSize)
+        let lineHeight = font.ascender - font.descender
+        let baselineY = wobbledFrame.minY + inkTopAboveBaseline
+        textLayer.frame = CGRect(
+            x: wobbledFrame.midX - max(wobbledFrame.width, fontSize),
+            y: baselineY - font.ascender,
+            width: max(wobbledFrame.width, fontSize) * 2,
+            height: lineHeight
+        )
         // CATextLayer.font wants a CTFont/CGFont/PostScript-name CFTypeRef,
         // not a UIFont directly (no toll-free bridge) — the font's own
         // PostScript name is the documented, reliable way in.
         textLayer.font = font.fontName as CFTypeRef
-        textLayer.fontSize = wobbledFrame.height
+        textLayer.fontSize = fontSize
         textLayer.foregroundColor = UIColor.systemBlue.cgColor
         textLayer.alignmentMode = .center
         textLayer.contentsScale = UIScreen.main.scale
@@ -752,10 +785,44 @@ final class TutorWriter: UIView {
     /// not chalky/comic/quirky," compared against Bradley Hand). `nil` (not
     /// a crash) if this exact PostScript name ever stops shipping — callers
     /// (`textFont`) always have `systemFallbackFont` underneath.
-    private static let handwritingFontName = "ChalkboardSE-Regular"
+    private static let handwritingFontName = "ChalkboardSE-Bold"
 
     private static func handwritingFont(size: CGFloat) -> UIFont? {
         UIFont(name: handwritingFontName, size: size)
+    }
+
+    /// Ink-box measurement cache: character -> (inkHeight, inkMaxY) in
+    /// font units per 1pt of point size, measured once at a reference size.
+    private static var inkMetricsCache: [String: (height: CGFloat, maxY: CGFloat)] = [:]
+
+    /// The point size at which `character`'s actual drawn ink is
+    /// `targetInkHeight` tall, plus where that ink's top sits above the
+    /// baseline at that size — so callers can pin the ink into a target
+    /// frame exactly. Falls back to (target, target) when the glyph can't
+    /// be measured (renders roughly frame-sized, never invisible).
+    static func inkFittedFontSize(
+        for character: String, targetInkHeight: CGFloat
+    ) -> (size: CGFloat, inkTopAboveBaseline: CGFloat) {
+        let metrics: (height: CGFloat, maxY: CGFloat)
+        if let cached = inkMetricsCache[character] {
+            metrics = cached
+        } else {
+            let ref: CGFloat = 100
+            let ctFont = textFont(for: character, size: ref) as CTFont
+            var chars = Array(character.utf16)
+            var glyphs = [CGGlyph](repeating: 0, count: chars.count)
+            let mapped = CTFontGetGlyphsForCharacters(ctFont, &chars, &glyphs, chars.count)
+            guard mapped, let g = glyphs.first, g != 0 else {
+                return (targetInkHeight, targetInkHeight)
+            }
+            var glyph = g
+            let rect = CTFontGetBoundingRectsForGlyphs(ctFont, .default, &glyph, nil, 1)
+            guard rect.height > 0.5 else { return (targetInkHeight, targetInkHeight) }
+            metrics = (rect.height / ref, rect.maxY / ref)
+            inkMetricsCache[character] = metrics
+        }
+        let size = targetInkHeight / metrics.height
+        return (size, metrics.maxY * size)
     }
 
     /// Whether `font`'s cmap actually has a glyph for every unicode scalar
