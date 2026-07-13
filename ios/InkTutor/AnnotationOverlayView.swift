@@ -638,6 +638,23 @@ final class AnnotationOverlayView: UIView {
     private let pointer = TutorPointer()
     private let queue = AnnotationQueue()
 
+    /// Failsafe: the pointer must never outlive the action it's pointing
+    /// for (Hugh, 2026-07-13: "make sure the cursor is removed / fades out
+    /// when not talking"). Every flight re-arms this; if the normal
+    /// after-draw fade is skipped for any reason (interrupted animation
+    /// chain, dropped tag mid-queue), this hides it regardless.
+    private var pointerFailsafe: DispatchWorkItem?
+
+    private func armPointerFailsafe(after seconds: TimeInterval) {
+        pointerFailsafe?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.pointer.imageView.alpha > 0 else { return }
+            UIView.animate(withDuration: 0.3) { self.pointer.imageView.alpha = 0 }
+        }
+        pointerFailsafe = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
+    }
+
     init(pageSize: CGSize) {
         self.pageSize = pageSize
         super.init(frame: CGRect(origin: .zero, size: pageSize))
@@ -741,6 +758,8 @@ final class AnnotationOverlayView: UIView {
 
         pointer.imageView.center = flightStart
         pointer.imageView.alpha = 1
+        // Generous upper bound on flight + draw; re-armed per annotation.
+        armPointerFailsafe(after: flightDuration + 4.0)
         let flight = CAKeyframeAnimation(keyPath: "position")
         let controlPoint = RoughGeometry.arcControlPoint(from: flightStart, to: target)
         let flightPath = CGMutablePath()
