@@ -572,12 +572,36 @@ final class TutorWriter: UIView {
         let placements: [TutorWriterLayout.GlyphPlacement]
     }
 
+    /// Feature flag: `false` (default) renders every glyph via the
+    /// handwriting-font text path (`writeFallback`, despite the name — see
+    /// its doc comment). `true` restores the original `glyphStrokes`
+    /// hand-traced `CAShapeLayer` path for every glyph that has authored
+    /// strokes (Hugh, 2026-07-12: "the tutor's handwriting looks terrible" —
+    /// the stroke glyphs read as a shaky, disconnected scrawl next to real
+    /// pen ink; a real handwriting font reads as, well, handwriting). Kept
+    /// as a one-line revert, not deleted: `glyphStrokes` stays the ground
+    /// truth for the two structural constructs (`"fracbar"`, `"√"`, see
+    /// `write` below) either way, and nothing about `TutorWriterLayout`
+    /// changed — only which visual each placement gets.
+    static let useStrokeGlyphs = false
+
     /// Hand-writes `latex` starting at `origin` (page space, top-left),
     /// scaled so the whole equation is `height` points tall. Glyphs animate
-    /// in reading order; within each glyph, strokes animate in
-    /// `glyphStrokes`' authored order. Never throws/crashes on unparseable
-    /// latex or missing glyphs — both degrade to a logged fallback (Task
-    /// 11's stated contract).
+    /// in reading order. Never throws/crashes on unparseable latex or
+    /// missing glyphs — both degrade to a logged fallback (Task 11's stated
+    /// contract).
+    ///
+    /// `"fracbar"` (the fraction bar / radical overbar) and `"√"` (the
+    /// radical tick) are synthetic entries `TutorWriterLayout.walk`
+    /// invents from pure geometry (a straight line; a checkmark-shaped tick
+    /// meant to compose with a separately-drawn overbar) — they were never
+    /// "a character a font renders," in either mode, so they always draw
+    /// via the original `glyphStrokes`-traced `CAShapeLayer` path
+    /// regardless of `useStrokeGlyphs`. Rendering `"√"` as an actual font
+    /// glyph inside its (deliberately tick-only-width) frame would draw a
+    /// whole radical symbol squashed into a sliver and double up with the
+    /// separately-drawn overbar — confirmed by eye against the `08_sqrt`
+    /// battery render before landing this.
     @discardableResult
     func write(latex: String, at origin: CGPoint, height: CGFloat) async -> WriteResult {
         guard let (placements, bounds) = TutorWriterLayout.layout(latex: latex, at: origin, height: height) else {
@@ -590,12 +614,17 @@ final class TutorWriter: UIView {
         writtenContainers.append(container)
 
         for placement in placements {
-            if let strokes = glyphStrokes[placement.glyphKey] {
-                for unitStroke in strokes {
+            let hasStrokes = glyphStrokes[placement.glyphKey] != nil
+            let isStructural = placement.glyphKey == "fracbar" || placement.glyphKey == "√"
+
+            if hasStrokes, Self.useStrokeGlyphs || isStructural {
+                for unitStroke in glyphStrokes[placement.glyphKey] ?? [] {
                     await writeStroke(unitStroke, into: placement.frame, on: container)
                 }
             } else {
-                TutorLog.shared.info("TutorWriter: no glyphStrokes entry for \"\(placement.character)\" (key=\"\(placement.glyphKey)\") — using text fallback")
+                if !hasStrokes {
+                    TutorLog.shared.info("TutorWriter: no glyphStrokes entry for \"\(placement.character)\" (key=\"\(placement.glyphKey)\") — using text fallback")
+                }
                 writeFallback(character: placement.glyphKey, frame: placement.frame, on: container)
                 try? await Task.sleep(nanoseconds: UInt64(TutorWriterLayout.fallbackPause * 1_000_000_000))
             }
@@ -642,47 +671,125 @@ final class TutorWriter: UIView {
         try? await Task.sleep(nanoseconds: UInt64((duration + TutorWriterLayout.strokeGap) * 1_000_000_000))
     }
 
-    /// Non-animated fallback for a glyph absent from `glyphStrokes` (letters
-    /// we lack, etc.) — a rounded system font so it reads as "the tutor's
-    /// handwriting" rather than a mismatched printed character, per Task
-    /// 11's spec: log it (done by the caller) and never crash.
+    /// Despite the name (kept for call-site/log continuity — this was
+    /// originally the unknown-glyph fallback, Task 11), this is now the
+    /// **default per-glyph render path** whenever `useStrokeGlyphs == false`
+    /// (every glyph but the structural `"fracbar"`/`"√"` entries — see
+    /// `write` above): a `CATextLayer` set in `handwritingFont`, the font
+    /// chosen by eye (2026-07-12 scope cut) to replace the stroke-glyph
+    /// rendering that "looks terrible." Falls back to `systemFallbackFont`
+    /// per-glyph when the handwriting font's cmap lacks that character
+    /// (math symbols like `√`/`∫` or Greek letters most handwriting fonts
+    /// don't ship) — verified via `fontHasGlyphs`, not assumed.
     ///
     /// Takes the caller's already-`normalizeGlyphKey`-folded string, NOT the
     /// raw `GlyphPlacement.character` — SwiftMath's raw nucleus for a
     /// variable is a *styled* Mathematical Alphanumeric Symbols codepoint
-    /// (e.g. italic z), which the system rounded font has no glyph for;
-    /// CoreText silently substitutes a serif math font instead, so the
-    /// fallback visibly clashed with the hand-drawn strokes around it
-    /// (the actual bug behind "it writes stuff weirdly" for `z`/`w` in the
-    /// demo battery). The folded key is plain ASCII/Greek, which the
-    /// rounded font *does* have.
+    /// (e.g. italic z), which neither the handwriting font nor the system
+    /// rounded fallback has a glyph for; CoreText silently substitutes a
+    /// serif math font instead, so the fallback visibly clashed with the
+    /// hand-drawn strokes around it (the actual bug behind "it writes stuff
+    /// weirdly" for `z`/`w` in the demo battery). The folded key is plain
+    /// ASCII/Greek, which both fonts *do* have.
     ///
-    /// A small random rotation (±2°) is layered on top so a run of fallback
-    /// letters doesn't read as a rigid printed row next to genuinely
-    /// hand-drawn strokes, which vary stroke-to-stroke.
+    /// Two touches so a run of font-rendered glyphs doesn't read as a rigid
+    /// printed row: a small random rotation (±2°, unchanged from the old
+    /// fallback) plus a slight vertical baseline wobble (±1.5pt) — real
+    /// handwriting never sits perfectly on one ruled line. Reveals with a
+    /// left-to-right fade/scale-in (strokeEnd tracing doesn't apply to a
+    /// whole font glyph) timed off `TutorWriterLayout.minimumStrokeDuration`
+    /// so it finishes comfortably inside the `fallbackPause` gap the caller
+    /// already awaits between glyphs.
     private func writeFallback(character: String, frame: CGRect, on container: CALayer) {
+        let baselineWobble = CGFloat.random(in: -1.5...1.5)
+        let wobbledFrame = frame.offsetBy(dx: 0, dy: baselineWobble)
+
         let textLayer = CATextLayer()
         textLayer.string = character
-        textLayer.frame = frame
-        let font = Self.fallbackFont(size: frame.height)
+        textLayer.frame = wobbledFrame
+        let font = Self.textFont(for: character, size: wobbledFrame.height)
         // CATextLayer.font wants a CTFont/CGFont/PostScript-name CFTypeRef,
         // not a UIFont directly (no toll-free bridge) — the font's own
         // PostScript name is the documented, reliable way in.
         textLayer.font = font.fontName as CFTypeRef
-        textLayer.fontSize = frame.height
+        textLayer.fontSize = wobbledFrame.height
         textLayer.foregroundColor = UIColor.systemBlue.cgColor
         textLayer.alignmentMode = .center
         textLayer.contentsScale = UIScreen.main.scale
+
         let jitterDegrees = CGFloat.random(in: -2...2)
-        textLayer.transform = CATransform3DMakeRotation(jitterDegrees * .pi / 180, 0, 0, 1)
+        let restTransform = CATransform3DMakeRotation(jitterDegrees * .pi / 180, 0, 0, 1)
+        let startTransform = CATransform3DScale(restTransform, 0.6, 0.6, 1)
+        // Model values are the RESTING state (opacity 1, no extra scale) —
+        // `CALayer.render(in:)` (the visual harness's PNG capture) draws
+        // model values, not mid-animation presentation values, so a
+        // snapshot taken any time after this call still shows the glyph
+        // fully written in, exactly like the strokeEnd=1 pattern
+        // `writeStroke` already relies on below.
+        textLayer.transform = restTransform
+        textLayer.opacity = 1
         container.addSublayer(textLayer)
+
+        let revealDuration = TutorWriterLayout.minimumStrokeDuration
+        let scaleAnimation = CABasicAnimation(keyPath: "transform")
+        scaleAnimation.fromValue = startTransform
+        scaleAnimation.toValue = restTransform
+        let fadeAnimation = CABasicAnimation(keyPath: "opacity")
+        fadeAnimation.fromValue = 0
+        fadeAnimation.toValue = 1
+
+        let reveal = CAAnimationGroup()
+        reveal.animations = [scaleAnimation, fadeAnimation]
+        reveal.duration = revealDuration
+        reveal.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        textLayer.add(reveal, forKey: "reveal")
     }
 
-    /// Rounded system font — reads as "a tutor's board hand" for the rare
-    /// glyph `glyphStrokes` doesn't cover, per the five heuristics
-    /// (Global Constraints: "everything drawn looks hand-drawn... but a
-    /// tutor's board hand, professional, not a scrawl").
-    private static func fallbackFont(size: CGFloat) -> UIFont {
+    /// The handwriting font every glyph renders in by default (`Self.
+    /// useStrokeGlyphs == false`) — chosen by eye against the visual
+    /// harness's battery (2026-07-12 scope cut skipped the planned 4-font
+    /// audition; Hugh's follow-up refinement asked for "normal handwriting,
+    /// not chalky/comic/quirky," compared against Bradley Hand). `nil` (not
+    /// a crash) if this exact PostScript name ever stops shipping — callers
+    /// (`textFont`) always have `systemFallbackFont` underneath.
+    private static let handwritingFontName = "ChalkboardSE-Regular"
+
+    private static func handwritingFont(size: CGFloat) -> UIFont? {
+        UIFont(name: handwritingFontName, size: size)
+    }
+
+    /// Whether `font`'s cmap actually has a glyph for every unicode scalar
+    /// in `character` — checked via `CTFontGetGlyphsForCharacters` rather
+    /// than assumed, since a missing glyph silently renders as tofu/a
+    /// substituted font instead of throwing (the same class of bug
+    /// `writeFallback`'s doc comment already called out for the raw
+    /// Mathematical Alphanumeric codepoints).
+    private static func fontHasGlyphs(for character: String, font: UIFont) -> Bool {
+        let utf16 = Array(character.utf16)
+        guard !utf16.isEmpty else { return false }
+        var glyphs = [CGGlyph](repeating: 0, count: utf16.count)
+        let resolved = CTFontGetGlyphsForCharacters(font as CTFont, utf16, &glyphs, utf16.count)
+        return resolved && glyphs.allSatisfy { $0 != 0 }
+    }
+
+    /// Picks `handwritingFont` when it can actually render `character`,
+    /// else `systemFallbackFont` at the same size — the per-glyph fallback
+    /// Task 11's font-mode spec calls for (math symbols/Greek letters most
+    /// handwriting fonts don't ship, e.g. `√`/`∫`/uncovered Greek letters
+    /// after `normalizeGlyphKey`'s fold).
+    private static func textFont(for character: String, size: CGFloat) -> UIFont {
+        if let handwriting = handwritingFont(size: size), fontHasGlyphs(for: character, font: handwriting) {
+            return handwriting
+        }
+        return systemFallbackFont(size: size)
+    }
+
+    /// Rounded system font — reads as "a tutor's board hand" for any glyph
+    /// `handwritingFont` can't render, per the five heuristics (Global
+    /// Constraints: "everything drawn looks hand-drawn... but a tutor's
+    /// board hand, professional, not a scrawl"). Also the whole-suite
+    /// fallback if `handwritingFontName` itself ever fails to resolve.
+    private static func systemFallbackFont(size: CGFloat) -> UIFont {
         let base = UIFont.systemFont(ofSize: size, weight: .medium)
         let descriptor = base.fontDescriptor.withDesign(.rounded) ?? base.fontDescriptor
         return UIFont(descriptor: descriptor, size: size)

@@ -442,13 +442,17 @@ final class RealtimeSession: NSObject, TutorSession {
 
     private func configureAudioSession() throws {
         let session = AVAudioSession.sharedInstance()
-        // .mixWithOthers so this session doesn't outright silence Zoom's
-        // broadcast-extension session when screen-sharing for a demo. Only
-        // covers our half of the interruption: if Zoom's own session
-        // activates non-mixable (its choice, not ours), it still wins and
-        // interrupts us regardless of this flag — needs testing against the
-        // actual Zoom share flow, not assumed fixed by this alone.
-        try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetoothHFP, .mixWithOthers])
+        // .videoChat, not .voiceChat: Apple's AVAudioSession category/mode
+        // matrix (QA1803) explicitly disallows AirPlay routing under
+        // .voiceChat — audio is pinned to the local device regardless of
+        // Screen Mirroring. .videoChat is the mode that supports the
+        // "mirrored" AirPlay variant (i.e. Screen Mirroring, not just a
+        // standalone AirPlay speaker pick), while keeping .playAndRecord's
+        // voice-processing/echo-cancellation. .mixWithOthers so this session
+        // doesn't outright silence Zoom's broadcast-extension session when
+        // screen-sharing for a demo — only covers our half of that
+        // interruption, see prior note in git history.
+        try session.setCategory(.playAndRecord, mode: .videoChat, options: [.defaultToSpeaker, .allowBluetoothHFP, .mixWithOthers])
         try session.setActive(true)
     }
 
